@@ -165,6 +165,9 @@ func xcodeProject(
         xcconfigOverridesFileRef = nil
     }
     
+    // Determine the list of external package dependencies, if any.
+    let externalPackages = graph.packages.filter{ $0 != graph.rootPackage }
+    
     // To avoid creating multiple groups for the same path, we keep a mapping
     // of the paths we've seen and the corresponding groups we've created.
     var srcPathsToGroups: [AbsolutePath: Xcode.Group] = [:]
@@ -209,9 +212,20 @@ func xcodeProject(
         project.mainGroup.addFileReference(path: extraDir.relative(to: sourceRootDir).asString, pathBase: .projectDir)
     }
     
-    // Add a `Products` group, and set it as the project's product group.  This
-    // is the group to which we'll add references to the outputs of the various
-    // targets; these references will be added to the link phases.
+    // If we have any external packages, we also add a `Dependencies` group at
+    // the top level.  We'll put the `Sources` directories for any dependencies
+    // there instead of the top-level `Sources`.
+    let packagesPath = sourceRootDir.appending(component: "Packages")
+    let dependenciesGroup: Xcode.Group?
+    if !graph.externalModules.isEmpty {
+        // The path is "Packages", but the group name is "Dependencies".
+        dependenciesGroup = makeGroup(for: packagesPath, named: "Dependencies")
+    }
+    else {
+        // No external dependencies, so no `Dependencies` group either.
+        dependenciesGroup = nil
+    }
+    
     // Add a `Products` group, to which we'll add references to the outputs of
     // the various targets; these references will be added to the link phases.
     let productsGroup = project.mainGroup.addGroup(path: "", pathBase: .buildDir, name: "Products")
@@ -226,6 +240,23 @@ func xcodeProject(
     
     // We'll need a mapping of modules to the corresponding targets.
     var modulesToTargets: [Module: Xcode.Target] = [:]
+    
+    // Create groups for any external packages (also adding them to the mapping
+    // of paths to groups).  This lets us separate the sources for any external
+    // packages from those for the local package.
+    for package in externalPackages {
+        // Create a group for the package's `Sources` directory, with the name
+        // of the package.  We add it directly to the dependencies group (which
+        // we expect to have created if we make it to this code); we do not go
+        // through `makeGroup()` since we don't want an extra level between the
+        // `Dependencies` group and the group containing the sources.
+        let packageSourcesDir = package.path.appending(component: "Sources")
+        let packageGroup = dependenciesGroup!.addGroup(path: packageSourcesDir.relative(to: packagesPath).asString, pathBase: .groupDir, name: package.path.basename)
+        
+        // We add the group to the mapping, so that `makeGroup()` will find it
+        // when we add the external package's source files later.
+        srcPathsToGroups[packageSourcesDir] = packageGroup
+    }
     
     // Go through all the modules, creating targets and adding file references
     // to the group tree (the specific top-level group under which they are
@@ -352,13 +383,30 @@ func xcodeProject(
         // Determine the top-level directory for source files of the module.
         let moduleRootDir = module.sources.root
         
-        // Choose either `Sources` or `Tests` as the parent group.
-        let moduleParentGroup = module.isTest ? testsGroup : sourcesGroup
-        
-        // Create a group for the module, and set its path to the module source
-        // root.  We make it a top-level group even if it isn't in the package's
-        // `Sources` directory (doesn't happen in a standard package layout).
-        let moduleGroup = moduleParentGroup.addGroup(path: moduleRootDir.relative(to: sourceRootDir).asString, pathBase: .projectDir, name: module.name)
+        // Create a group for the module, in the appropriate place based on its
+        // type and whether or not it's in an external package.
+        let moduleGroup: Xcode.Group
+        if graph.externalModules.contains(module) {
+            // External module.  We don't expect to see any tests from external
+            // packages (it could be argued that we ought to, but right now we
+            // don't).
+            assert(!module.isTest)
+            
+            // Create the module group.  Because we already set up groups that
+            // correspond to the `Sources` directory of each external package,
+            // the new modules group will end up under the right parent group.
+            moduleGroup = makeGroup(for: moduleRootDir)
+        }
+        else {
+            // Local module, so parent group is either `Sources` or `Tests`.
+            let moduleParentGroup = module.isTest ? testsGroup : sourcesGroup
+            
+            // Create a group for the module, and set its path to the module
+            // source root.  We make it a top-level group even if it isn't in
+            // the package's `Sources` directory (doesn't happen in a standard
+            // package layout).
+            moduleGroup = moduleParentGroup.addGroup(path: moduleRootDir.relative(to: sourceRootDir).asString, pathBase: .projectDir, name: module.name)
+        }
         
         // We add the group to the mapping, so that sources will find it.
         srcPathsToGroups[moduleRootDir] = moduleGroup
