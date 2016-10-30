@@ -193,7 +193,7 @@ func xcodeProject(
     }
     
     // Add a mapping from the project dir to the main group, as a backstop for
-    // any paths that get so far (doesn't happen in a standard package layout).
+    // any paths that get that far (doesn't happen in standard package layout).
     srcPathsToGroups[sourceRootDir] = project.mainGroup
     
     // Add a `Sources` group, to which we'll add a subgroup for every regular
@@ -203,7 +203,8 @@ func xcodeProject(
     // Add a `Tests` group, to which we'll add a subgroup for every test module.
     let testsGroup = project.mainGroup.addGroup(path: "Tests")
     
-    // Add "blue folders" for all the other directories at the top level.
+    // Add "blue folders" for any other directories at the top level (note that
+    // they are not guaranteed to be direct children of the root directory).
     for extraDir in extraDirs {
         project.mainGroup.addFileReference(path: extraDir.relative(to: sourceRootDir).asString, pathBase: .projectDir)
     }
@@ -211,7 +212,12 @@ func xcodeProject(
     // Add a `Products` group, and set it as the project's product group.  This
     // is the group to which we'll add references to the outputs of the various
     // targets; these references will be added to the link phases.
+    // Add a `Products` group, to which we'll add references to the outputs of
+    // the various targets; these references will be added to the link phases.
     let productsGroup = project.mainGroup.addGroup(path: "", pathBase: .buildDir, name: "Products")
+    
+    // Set the newly created `Products` group as the official products group of
+    // the project.
     project.productGroup = productsGroup
     
     // Determine the set of modules to generate in the project by excluding
