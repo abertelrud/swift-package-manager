@@ -171,14 +171,23 @@ func xcodeProject(
     
     // Private helper function to make a group (or return an existing one) for
     // a particular path, including any intermediate groups that may be needed.
-    func makeGroup(for path: AbsolutePath) -> Xcode.Group {
+    // A name can be specified, if different from the last path component (any
+    // custom name does not apply to any intermediate groups).
+    func makeGroup(for path: AbsolutePath, named name: String? = nil) -> Xcode.Group {
         // Check if we already have a group.
         if let group = srcPathsToGroups[path] {
+            // We do, so we just return it without creating anything.
             return group
         }
-        // We don't, so create one, starting with the parent.
+        // No existing group, so start by making sure we have the parent.  Note
+        // that we don't pass along any custom name for any parent groups.
         let parentGroup = makeGroup(for: path.parentDirectory)
-        let group = parentGroup.addGroup(path: path.basename)
+        
+        // Now we have a parent, so we can create a group, optionally using the
+        // custom name we were given.
+        let group = parentGroup.addGroup(path: path.basename, pathBase: .groupDir, name: name ?? path.basename)
+        
+        // Add the new group to the mapping, so future lookups will find it.
         srcPathsToGroups[path] = group
         return group
     }
