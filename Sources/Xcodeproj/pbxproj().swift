@@ -198,10 +198,10 @@ func xcodeProject(
     
     // Add a `Sources` group, to which we'll add a subgroup for every regular
     // module.
-    let sourcesGroup = project.mainGroup.addGroup(path: "Sources")
+    let sourcesGroup = makeGroup(for: sourceRootDir.appending(component: "Sources"))
     
     // Add a `Tests` group, to which we'll add a subgroup for every test module.
-    let testsGroup = project.mainGroup.addGroup(path: "Tests")
+    let testsGroup = makeGroup(for: sourceRootDir.appending(component: "Tests"))
     
     // Add "blue folders" for any other directories at the top level (note that
     // they are not guaranteed to be direct children of the root directory).
