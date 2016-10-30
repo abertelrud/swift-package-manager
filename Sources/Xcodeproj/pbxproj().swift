@@ -199,8 +199,8 @@ func xcodeProject(
     // any paths that get that far (doesn't happen in standard package layout).
     srcPathsToGroups[sourceRootDir] = project.mainGroup
     
-    // Add a `Sources` group, to which we'll add a subgroup for every regular
-    // module.
+    // Add a `Sources` group, to which we'll add a subgroup for every non-test
+    // module in the local package.
     let sourcesGroup = makeGroup(for: sourceRootDir.appending(component: "Sources"))
     
     // Add a `Tests` group, to which we'll add a subgroup for every test module.
