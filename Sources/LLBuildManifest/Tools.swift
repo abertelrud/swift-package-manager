@@ -1,7 +1,7 @@
 /*
  This source file is part of the Swift.org open source project
 
- Copyright (c) 2014 - 2019 Apple Inc. and the Swift project authors
+ Copyright (c) 2014 - 2020 Apple Inc. and the Swift project authors
  Licensed under Apache License v2.0 with Runtime Library Exception
 
  See http://swift.org/LICENSE.txt for license information
@@ -207,7 +207,7 @@ public struct SwiftCompilerTool: ToolProtocol {
 
     public var executable: AbsolutePath
     public var moduleName: String
-    public var moduleOutputPath: AbsolutePath
+    public var moduleOutputPath: AbsolutePath?
     public var importPath: AbsolutePath
     public var tempsPath: AbsolutePath
     public var objects: [AbsolutePath]
@@ -221,7 +221,7 @@ public struct SwiftCompilerTool: ToolProtocol {
         outputs: [Node],
         executable: AbsolutePath,
         moduleName: String,
-        moduleOutputPath: AbsolutePath,
+        moduleOutputPath: AbsolutePath?,
         importPath: AbsolutePath,
         tempsPath: AbsolutePath,
         objects: [AbsolutePath],
@@ -247,7 +247,9 @@ public struct SwiftCompilerTool: ToolProtocol {
     public func write(to stream: ManifestToolStream) {
         stream["executable"] = executable
         stream["module-name"] = moduleName
-        stream["module-output-path"] = moduleOutputPath
+        if let moduleOutputPath = moduleOutputPath {
+            stream["module-output-path"] = moduleOutputPath
+        }
         stream["import-paths"] = [importPath]
         stream["temps-path"] = tempsPath
         stream["objects"] = objects
