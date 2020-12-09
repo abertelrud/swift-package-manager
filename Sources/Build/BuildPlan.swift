@@ -499,8 +499,12 @@ public final class SwiftTargetBuildDescription {
         let relativePaths = target.sources.relativePaths + derivedSources.relativePaths
         return relativePaths.map{ tempsPath.appending(RelativePath("\($0.pathString).o")) }
     }
+    
+    var wantsModuleEmitted: Bool {
+        return target.type == .library
+    }
 
-    /// The path to the swiftmodule file after compilation.
+    /// The path to the swiftmodule file emitted during compilation (if any).
     var moduleOutputPath: AbsolutePath {
         return buildParameters.buildPath.appending(component: target.c99name + ".swiftmodule")
     }
@@ -675,6 +679,9 @@ public final class SwiftTargetBuildDescription {
 
         // User arguments (from -Xswiftc) should follow generated arguments to allow user overrides
         args += buildParameters.swiftCompilerFlags
+        
+        print("CMPL('\(self.target.name)'): \(args.joined(separator: "|"))")
+        
         return args
     }
 
@@ -687,10 +694,11 @@ public final class SwiftTargetBuildDescription {
 
         result.append("-emit-dependencies")
 
-        // FIXME: Do we always have a module?
-        result.append("-emit-module")
-        result.append("-emit-module-path")
-        result.append(moduleOutputPath.pathString)
+        if self.wantsModuleEmitted {
+            result.append("-emit-module")
+            result.append("-emit-module-path")
+            result.append(moduleOutputPath.pathString)
+        }
 
         result.append("-output-file-map")
         // FIXME: Eliminate side effect.
@@ -1173,7 +1181,7 @@ public final class ProductBuildDescription {
         if fs.isDirectory(toolchainLibDir) {
             args += ["-L", toolchainLibDir.pathString]
         }
-
+        print("LINK('\(self.product.name)'): \(args.joined(separator: "|"))")
         return args
     }
 
@@ -1499,7 +1507,9 @@ public class BuildPlan {
                 // building for and is nil for the release configuration.
                 switch buildParameters.debuggingStrategy {
                 case .swiftAST:
-                    buildProduct.swiftASTs.insert(description.moduleOutputPath)
+                    if description.wantsModuleEmitted {
+                        buildProduct.swiftASTs.insert(description.moduleOutputPath)
+                    }
                 case .modulewrap:
                     buildProduct.objects += [description.wrappedModuleOutputPath]
                 case nil:

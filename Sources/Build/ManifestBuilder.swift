@@ -204,7 +204,9 @@ extension LLBuildManifestBuilder {
         }
 
         addTargetCmd(target, cmdOutputs: cmdOutputs)
-        addModuleWrapCmd(target)
+        if target.wantsModuleEmitted {
+            addModuleWrapCmd(target)
+        }
     }
 
     private func addSwiftCmdsViaIntegratedDriver(
@@ -368,7 +370,9 @@ extension LLBuildManifestBuilder {
                                       discoveredModulesMap: &discoveredModulesMap)
 
         addTargetCmd(description, cmdOutputs: cmdOutputs)
-        addModuleWrapCmd(description)
+        if description.wantsModuleEmitted {
+            addModuleWrapCmd(description)
+        }
     }
 
     private func addExplicitBuildSwiftCmds(
@@ -439,8 +443,10 @@ extension LLBuildManifestBuilder {
         guard case .swift(let dependencySwiftTargetDescription) = plan.targetMap[target] else {
             return
         }
-        dependencyModulePathMap[ModuleDependencyId.swiftPlaceholder(target.c99name)] =
-            dependencySwiftTargetDescription.moduleOutputPath
+        if dependencySwiftTargetDescription.wantsModuleEmitted {
+            dependencyModulePathMap[ModuleDependencyId.swiftPlaceholder(target.c99name)] =
+                dependencySwiftTargetDescription.moduleOutputPath
+        }
         collectTargetDependencyModulePaths(for: target,
                                            dependencyModulePathMap: &dependencyModulePathMap)
     }
@@ -453,13 +459,15 @@ extension LLBuildManifestBuilder {
     ) {
         // FIXME: We need to ingest the emitted dependencies.
 
-        manifest.addShellCmd(
-            name: target.moduleOutputPath.pathString,
-            description: "Emitting module for \(target.target.name)",
-            inputs: inputs,
-            outputs: [moduleNode],
-            args: target.emitModuleCommandLine()
-        )
+        if target.wantsModuleEmitted {
+            manifest.addShellCmd(
+                name: target.moduleOutputPath.pathString,
+                description: "Emitting module for \(target.target.name)",
+                inputs: inputs,
+                outputs: [moduleNode],
+                args: target.emitModuleCommandLine()
+            )
+        }
 
         let cmdName = target.target.getCommandName(config: buildConfig)
         manifest.addShellCmd(
@@ -485,7 +493,7 @@ extension LLBuildManifestBuilder {
             outputs: cmdOutputs,
             executable: buildParameters.toolchain.swiftCompiler,
             moduleName: target.target.c99name,
-            moduleOutputPath: target.moduleOutputPath,
+            moduleOutputPath: target.wantsModuleEmitted ? target.moduleOutputPath : nil,
             importPath: buildParameters.buildPath,
             tempsPath: target.tempsPath,
             objects: target.objects,
@@ -529,7 +537,9 @@ extension LLBuildManifestBuilder {
 
             switch plan.targetMap[target] {
             case .swift(let target)?:
-                inputs.append(file: target.moduleOutputPath)
+                if target.wantsModuleEmitted {
+                    inputs.append(file: target.moduleOutputPath)
+                }
             case .clang(let target)?:
                 for object in target.objects {
                     inputs.append(file: object)
