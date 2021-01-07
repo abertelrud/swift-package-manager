@@ -184,7 +184,7 @@ private func checkAllDependenciesAreUsed(_ rootPackages: [ResolvedPackage], _ di
 
             let dependencyIsUsed = dependency.products.contains(where: productDependencies.contains)
             if !dependencyIsUsed && !diagnostics.hasErrors {
-                diagnostics.emit(.unusedDependency(dependency.identity.description))
+                diagnostics.emit(.unusedDependency(dependency.identity.description), location: dependency.underlyingPackage.diagnosticLocation)
             }
         }
     }

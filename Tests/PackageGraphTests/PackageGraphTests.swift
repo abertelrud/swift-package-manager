@@ -813,9 +813,9 @@ class PackageGraphTests: XCTestCase {
         )
 
         DiagnosticsEngineTester(diagnostics) { result in
-            result.check(diagnostic: "dependency 'baz' is not used by any target", behavior: .warning)
+            result.check(diagnostic: "dependency 'baz' is not used by any target", behavior: .warning, location: "'Baz' /Baz")
             #if ENABLE_TARGET_BASED_DEPENDENCY_RESOLUTION
-            result.check(diagnostic: "dependency 'biz' is not used by any target", behavior: .warning)
+            result.check(diagnostic: "dependency 'biz' is not used by any target", behavior: .warning, location: "'Biz' /Biz")
             #endif
         }
     }

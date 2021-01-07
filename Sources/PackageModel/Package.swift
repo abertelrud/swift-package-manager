@@ -128,3 +128,14 @@ extension Package.Error: CustomStringConvertible {
         }
     }
 }
+
+extension Package {
+    public var diagnosticLocation: DiagnosticLocation {
+        switch self.manifest.packageKind {
+        case .root, .local:
+            return PackageLocation.Local(name: self.name, packagePath: self.path)
+        case .remote:
+            return PackageLocation.Remote(url: self.manifest.url, reference: self.manifest.revision ?? "")
+        }
+    }
+}
