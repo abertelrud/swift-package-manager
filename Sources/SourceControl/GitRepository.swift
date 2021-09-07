@@ -71,11 +71,13 @@ public struct GitRepositoryProvider: RepositoryProvider {
                          repository: RepositorySpecifier,
                          failureMessage: String = "",
                          progress: FetchProgress.Handler? = nil) throws -> String {
+        var capturedStderr: [UInt8] = []
         do {
             if let progress = progress {
                 let outputRedirection = Process.OutputRedirection.stream {
                     _ in
                 } stderr: {
+                    capturedStderr.append(contentsOf: $0)
                     GitFetchProgress.gitFetchStatusFilter($0, progress: progress)
                 }
                 return try self.git.run(args + ["--progress"], environment: environment, outputRedirection: outputRedirection)
@@ -83,7 +85,9 @@ public struct GitRepositoryProvider: RepositoryProvider {
                 return try self.git.run(args, environment: environment)
             }
         } catch let error as GitShellError {
-            throw GitCloneError(repository: repository, message: failureMessage, result: error.result)
+            let stdout = (try? error.result.utf8Output()) ?? ""
+            let stderr = capturedStderr.isEmpty ? (try? error.result.utf8stderrOutput()) ?? "" : String(decoding: capturedStderr, as: UTF8.self)
+            throw GitCloneError(repository: repository, message: failureMessage, output: stdout + stderr)
         }
     }
 
@@ -935,7 +939,7 @@ public struct GitRepositoryError: Error, CustomStringConvertible, DiagnosticLoca
 public struct GitCloneError: Error, CustomStringConvertible, DiagnosticLocationProviding {
     public let repository: RepositorySpecifier
     public let message: String
-    public let result: ProcessResult
+    public let output: String
 
     public struct Location: DiagnosticLocation {
         public let repository: RepositorySpecifier
@@ -949,9 +953,7 @@ public struct GitCloneError: Error, CustomStringConvertible, DiagnosticLocationP
     }
 
     public var description: String {
-        let stdout = (try? self.result.utf8Output()) ?? ""
-        let stderr = (try? self.result.utf8stderrOutput()) ?? ""
-        let output = (stdout + stderr).spm_chomp().spm_multilineIndent(count: 4)
+        let output = self.output.spm_chomp().spm_multilineIndent(count: 4)
         return "\(self.message):\n\(output)"
     }
 }
