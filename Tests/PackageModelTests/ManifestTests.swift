@@ -1,7 +1,7 @@
 /*
  This source file is part of the Swift.org open source project
 
- Copyright (c) 2014 - 2019 Apple Inc. and the Swift project authors
+ Copyright (c) 2014 - 2021 Apple Inc. and the Swift project authors
  Licensed under Apache License v2.0 with Runtime Library Exception
 
  See http://swift.org/LICENSE.txt for license information
@@ -22,8 +22,9 @@ class ManifestTests: XCTestCase {
         let targets = [
             try TargetDescription(name: "Foo", dependencies: ["Bar"]),
             try TargetDescription(name: "Bar", dependencies: ["Baz"]),
-            try TargetDescription(name: "Baz", dependencies: []),
+            try TargetDescription(name: "Baz", dependencies: ["MyPlugin"]),
             try TargetDescription(name: "FooBar", dependencies: []),
+            try TargetDescription(name: "MyPlugin", type: .plugin)
         ]
 
         do {
@@ -32,7 +33,7 @@ class ManifestTests: XCTestCase {
                 path: "/Foo",
                 packageKind: .root,
                 packageLocation: "/Foo",
-                v: .v5_2,
+                v: .v5_6,
                 products: products,
                 targets: targets
             )
@@ -51,7 +52,7 @@ class ManifestTests: XCTestCase {
                 path: "/Foo",
                 packageKind: .local,
                 packageLocation: "/Foo",
-                v: .v5_2,
+                v: .v5_6,
                 products: products,
                 targets: targets
             )
