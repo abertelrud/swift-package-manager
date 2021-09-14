@@ -131,6 +131,7 @@ public final class Target {
     /// will be extended as new plugin capabilities are added.
     public enum PluginCapability {
         case _buildTool
+        case _userCommand(PluginUserCommandIntent, PluginUserCommandWorkflowStage)
     }
     
     /// The target's C build settings.
@@ -1010,7 +1011,74 @@ extension Target.PluginCapability {
     public static func buildTool() -> Target.PluginCapability {
         return ._buildTool
     }
+
+    /// Specifies that the plugin provides a user command capability. It will
+    /// be available to invoke manually on one or more targets in a package.
+    /// The package can specify
+    @available(_PackageDescription, introduced: 5.6)
+    public static func userCommand(
+        /// The semantic intent of the plugin (either one of the predefined ones, or
+        /// a custom intent).
+        intent: PluginUserCommandIntent,
+        
+        /// The stage of the workflow at which the plugin should be invoked. This in
+        /// turn determines what information it is provided when it is invoked.
+        workflowStage: PluginUserCommandWorkflowStage
+    ) -> Target.PluginCapability {
+        return ._userCommand(intent, workflowStage)
+    }
 }
+
+public enum PluginUserCommandIntent {
+    /// The intent of the subcommand is to generate documentation, either by parsing
+    /// the package contents directly or using the compiler's support for generating
+    /// symbol graphs. Invoked by a `generate-documentation` verb to `swift package`.
+    case documentationGeneration
+    
+    /// The intent of the subcommand is to generate test reports based on structured
+    /// information provided by SwiftPM or an IDE that supports packages. Invoked by
+    /// a `generate-test-report` verb to `swift package`.
+    case testReportGeneration
+    
+    /// The intent of the subcommand is to apply rules to format the contents of
+    /// source code in the package. Invoked by a `format-source-code` verb to `swift
+    /// package`.
+    case sourceCodeFormatting
+        
+    /// An intent that doesn't fit into any of the other categories, with a custom
+    /// verb through which to invoke it.
+    case custom(verb: String, description: String)
+}
+
+public enum PluginUserCommandWorkflowStage {
+    /// The plugin will be run after package dependency resolution is complete, but
+    /// before other actions such as building or running tests.
+    case afterPackageDependencyResolution
+    
+    /// The plugin will be run after building the package. The requirements specify
+    /// the information that the plugin needs from the build; this may affect how the
+    /// build is carried out, e.g. whether symbol graph information or linkage maps
+    /// are created, etc.
+    case afterBuilding(requirements: [PluginUserCommandBuildRequirement])
+    
+    /// The plugin will be run after the tests defined in the package have been run.
+    /// A JSON file describing the results of running the tests will be provided.
+    case afterTesting
+}
+
+public enum PluginUserCommandBuildRequirement {
+    /// The plugin requires that the package has been built using the debug configu-
+    /// ration.
+    case debugBuild
+    
+    /// The plugin requires that the package has been built using the release configu-
+    /// ration.
+    case releaseBuild
+    
+    /// The plugin requires that symbol graph files have been generated.
+    case symbolGraph
+}
+
 
 extension Target.PluginUsage {
     /// Specifies use of a plugin target in the same package.
