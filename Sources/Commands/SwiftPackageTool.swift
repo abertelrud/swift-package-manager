@@ -60,6 +60,8 @@ public struct SwiftPackageTool: ParsableCommand {
             ComputeChecksum.self,
             ArchiveSource.self,
             CompletionTool.self,
+            
+            InvokePluginCommand.self
         ] + (ProcessInfo.processInfo.environment["SWIFTPM_ENABLE_SNIPPETS"] == "1" ? [Learn.self] : [ParsableCommand.Type]()),
         helpNames: [.short, .long, .customLong("help", withSingleDash: true)])
 
@@ -786,6 +788,110 @@ extension SwiftPackageTool {
                 swiftTool.outputStream <<< "Created \(destination.pathString)" <<< "\n"
             }
 
+            swiftTool.outputStream.flush()
+        }
+    }
+
+    // Experimental command to invoke user command plugins. This will probably change so that any non-builtin command
+    // can be implemented as a user command, once I've figured out how to do that in SwiftArgumentParser.
+    struct InvokePluginCommand: SwiftCommand {
+        static let configuration = CommandConfiguration(
+            commandName: "plugin",
+            abstract: "Invoke a plugin-defined user command (the way in which such commands are invoked is temporary)"
+        )
+
+        @OptionGroup(_hiddenFromHelp: true)
+        var swiftOptions: SwiftToolOptions
+
+        @OptionGroup()
+        var options: BuildToolOptions
+        
+        @Argument(help: "Name of the plugin-provided user command to run")
+        var command: String
+
+        func run(_ swiftTool: SwiftTool) throws {
+            // Load the workspace and resolve the package graph.
+            let packageGraph = try swiftTool.loadPackageGraph()
+            
+            // Determine all the available targets.
+            let availablePlugins = packageGraph.allTargets.compactMap{ $0.underlyingTarget as? PluginTarget }
+            
+            switch command {
+            // For now we treat generate-documentation specially.
+            case "generate-documentation":
+                // FIXME: This seems like a suboptimal way to run the plugins.
+                for plugin in availablePlugins {
+                    if case .userCommand(.documentationGeneration, let workflowStage) = plugin.capability {
+                        // Use the workflow stage to determine what actions to take before invoking the plugin.
+                        switch workflowStage {
+                            
+                        case .afterPackageDependencyResolution:
+                            // There is nothing additional to do here; we've already resolved the package graph here.
+                            break
+                            
+                        case .afterBuilding(requirements: let requirements):
+                            print(requirements)
+                            guard let subset = options.buildSubset(diagnostics: ObservabilitySystem.topScope.makeDiagnosticsEngine())
+                                else { throw ExitCode.failure }
+                            let buildParameters = try swiftTool.buildParameters()
+                            if requirements.contains(.symbolGraph) {
+                                print(buildParameters.symbolGraph)
+                            }
+                            let buildSystem = try swiftTool.createBuildSystem(explicitProduct: options.product, buildParameters: buildParameters)
+                            do {
+                                try buildSystem.build(subset: subset)
+                            } catch _ as Diagnostics {
+                                throw ExitCode.failure
+                            }
+
+                        case .afterTesting:
+                            // FIXME: Not yet supported.
+                            break
+                        }
+                        
+                        // Configure the plugin invocation inputs.
+
+                        // The `plugins` directory is inside the workspace's main data directory, and contains all
+                        // temporary files related to all plugins in the workspace.
+                        let dataDir = try swiftTool.getActiveWorkspace().location.workingDirectory
+                        let pluginsDir = dataDir.appending(component: "plugins")
+
+                        // The `cache` directory is in the plugins directory and is where the plugin script runner
+                        // caches compiled plugin binaries and any other derived information.
+                        let cacheDir = pluginsDir.appending(component: "cache")
+                        let pluginScriptRunner = DefaultPluginScriptRunner(cacheDir: cacheDir, toolchain: try swiftTool.getToolchain().configuration)
+
+                        // The `outputs` directory contains subdirectories for each combination of package, target, and plugin.
+                        // Each usage of a plugin has an output directory that is writable by the plugin, where it can write
+                        // additional files, and to which it can configure tools to write their outputs, etc.
+                        let outputDir = pluginsDir.appending(component: "outputs")
+
+                        // The `tools` directory contains any command line tools (executables) that are available for any commands
+                        // defined by the executable.
+                        // FIXME: At the moment we just pass the built products directory for the host. We will need to extend this
+                        // with a map of the names of tools available to each plugin. In particular this would not work with any
+                        // binary targets.
+                        let builtToolsDir = dataDir.appending(components: "plugin-tools")
+
+                        // Create the cache directory, if needed.
+                        try localFileSystem.createDirectory(cacheDir, recursive: true)
+
+                        // Ask the graph to invoke plugins, and return the result.
+                        let result = try plugin.invoke(
+                            action: .performUserCommand(targets: packageGraph.rootPackages.first!.targets, arguments: ["FIXME"]),
+                            package: packageGraph.rootPackages.first!,
+                            scriptRunner: pluginScriptRunner,
+                            outputDirectory: outputDir,
+                            toolNamesToPaths: [:],
+                            fileSystem: localFileSystem)
+                        print(result)
+                    }
+                }
+                print(availablePlugins)
+            default:
+                print("unknown command: \(command)")
+            }
+            
             swiftTool.outputStream.flush()
         }
     }

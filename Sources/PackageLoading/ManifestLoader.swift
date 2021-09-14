@@ -456,6 +456,8 @@ public final class ManifestLoader: ManifestLoaderProtocol {
             let errors = result.errorOutput ?? result.compilerOutput ?? "Missing or empty JSON output from manifest compilation for \(packageIdentity)"
             throw ManifestParseError.invalidManifestFormat(errors, diagnosticFile: result.diagnosticFile)
         }
+        
+        // print("manifestJSON: |\(manifestJSON)|")
 
         // We should not have any fatal error at this point.
         assert(result.errorOutput == nil)

@@ -69,3 +69,13 @@ extension BuildToolPlugin {
             toolNamesToPaths: context.toolNamesToPaths))
     }
 }
+
+/// Defines functionality for all plugins having a `userCommand` capability.
+public protocol UserCommandPlugin: Plugin {
+    func performUserCommand(
+        context: PluginContext,
+        targets: [Target],
+        arguments: [String]
+    ) throws -> [Command]
+}
+

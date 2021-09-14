@@ -137,6 +137,8 @@ class PluginInvocationTests: XCTestCase {
                         )
                     ],
                     prebuildCommands: [
+                    ],
+                    userCommands: [
                     ]
                 )
                 let outputJSON = try encoder.encode(result)

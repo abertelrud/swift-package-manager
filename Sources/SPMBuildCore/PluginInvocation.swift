@@ -17,6 +17,171 @@ import TSCUtility
 
 public typealias Diagnostic = TSCBasic.Diagnostic
 
+
+public enum PluginAction {
+    case createBuildToolCommands(target: ResolvedTarget)
+    case performUserCommand(targets: [ResolvedTarget], arguments: [String])
+}
+
+
+
+extension PluginTarget {
+    /// Invokes the plugin by compiling its source code (if needed) and then running it as a subprocess. The specified
+    /// plugin action determines which entry point is called in the subprocess, and the package and the tool mapping
+    /// determine the context that is available to the plugin.
+    ///
+    /// The working directory should be a path in the file system into which the plugin is allowed to write information
+    /// that persists between all invocations of a plugin for the same purpose. The exact meaning of "same" means here
+    /// depends on the particular plugin; for a build tool plugin, it might be the combination of the plugin and target
+    /// for which it is being invoked.
+    ///
+    /// Note that errors thrown by this function relate to problems actually invoking the plugin. Any diagnostics that
+    /// are emitted by the plugin are contained in the returned result structure.
+    ///
+    /// - Parameters:
+    ///   - action: The plugin action (i.e. entry point) to invoke, possibly containing parameters.
+    ///   - package: The root of the package graph to pass down to the plugin.
+    ///   - scriptRunner: Entity responsible for actually running the code of the plugin.
+    ///   - outputDirectory: A directory under which the plugin can write anything it wants to.
+    ///   - toolNamesToPaths: A mapping from name of tools available to the plugin to the corresponding absolute paths.
+    ///   - fileSystem: The file system to which all of the paths refers.
+    ///
+    /// - Returns: A PluginInvocationResult that contains the results of invoking the plugin.
+    public func invoke(
+        action: PluginAction,
+        package: ResolvedPackage,
+        scriptRunner: PluginScriptRunner,
+        outputDirectory: AbsolutePath,
+        toolNamesToPaths: [String: AbsolutePath],
+        fileSystem: FileSystem
+    ) throws -> PluginInvocationResult {
+        // Create the plugin working directory if needed (but don't remove it if it already exists).
+        do {
+            try fileSystem.createDirectory(outputDirectory, recursive: true)
+        }
+        catch {
+            throw PluginEvaluationError.outputDirectoryCouldNotBeCreated(path: outputDirectory, underlyingError: error)
+        }
+
+        // Create the input context to send to the plugin.
+        // TODO: Some of this could probably be cached.
+        var serializer = PluginScriptRunnerInputSerializer()
+        let inputStruct = try serializer.makePluginScriptRunnerInput(
+            rootPackage: package,
+            pluginWorkDir: outputDirectory,
+            builtProductsDir: outputDirectory,  // FIXME — what is this parameter needed for?
+            toolNamesToPaths: toolNamesToPaths,
+            pluginAction: action)
+        
+        // MARK: Start of asynchronicity
+
+        // Serialize the PluginEvaluationInput to JSON.
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.prettyPrinted, .sortedKeys, .withoutEscapingSlashes]
+        let inputJSON = try encoder.encode(inputStruct)
+        print(String(decoding: inputJSON, as: UTF8.self))
+        
+        // Call the plugin script runner to actually invoke the plugin.
+        // TODO: This should be asynchronous.
+        let (outputJSON, outputText) = try scriptRunner.runPluginScript(
+            sources: sources,
+            inputJSON: inputJSON,
+            toolsVersion: self.apiVersion,
+            writableDirectories: [        outputDirectory],
+            diagnostics: DiagnosticsEngine(),  // FIXME
+            fileSystem: fileSystem)
+
+        // Deserialize the JSON to an PluginScriptRunnerOutput.
+        let outputStruct: PluginScriptRunnerOutput
+        do {
+            let decoder = JSONDecoder()
+            outputStruct = try decoder.decode(PluginScriptRunnerOutput.self, from: outputJSON)
+        }
+        catch {
+            throw PluginEvaluationError.decodingPluginOutputFailed(json: outputJSON, underlyingError: error)
+        }
+        print(outputStruct)
+        print(outputText)
+
+        // Generate emittable Diagnostics from the plugin output.
+        let diagnostics: [Diagnostic] = outputStruct.diagnostics.map { diag in
+            // FIXME: The implementation here is unfortunate; better Diagnostic APIs would make it cleaner.
+            let location = diag.file.map {
+                PluginInvocationResult.FileLineLocation(file: $0, line: diag.line)
+            }
+            let message: Diagnostic.Message
+            switch diag.severity {
+            case .error: message = .error(diag.message)
+            case .warning: message = .warning(diag.message)
+            case .remark: message = .remark(diag.message)
+            }
+            if let location = location {
+                return Diagnostic(message: message, location: location)
+            }
+            else {
+                return Diagnostic(message: message)
+            }
+        }
+        
+        // FIXME: Validate the plugin output structure here, e.g. paths, etc.
+        
+        // Generate commands from the plugin output. This is where we translate from the transport JSON to our
+        // internal form. We deal with BuildCommands and PrebuildCommands separately.
+        // FIXME: This feels a bit too specific to have here.
+        // FIXME: Also there is too much repetition here, need to unify it.
+        let buildCommands = outputStruct.buildCommands.map { cmd in
+            PluginInvocationResult.BuildCommand(
+                configuration: .init(
+                    displayName: cmd.displayName,
+                    executable: cmd.executable,
+                    arguments: cmd.arguments,
+                    environment: cmd.environment,
+                    workingDirectory: cmd.workingDirectory.map{ AbsolutePath($0) }),
+                inputFiles: cmd.inputFiles.map{ AbsolutePath($0) },
+                outputFiles: cmd.outputFiles.map{ AbsolutePath($0) })
+        }
+        let prebuildCommands = outputStruct.prebuildCommands.map { cmd in
+            PluginInvocationResult.PrebuildCommand(
+                configuration: .init(
+                    displayName: cmd.displayName,
+                    executable: cmd.executable,
+                    arguments: cmd.arguments,
+                    environment: cmd.environment,
+                    workingDirectory: cmd.workingDirectory.map{ AbsolutePath($0) }),
+                outputFilesDirectory: AbsolutePath(cmd.outputFilesDirectory))
+        }
+        let userCommands = outputStruct.userCommands.map { cmd in
+            PluginInvocationResult.UserCommand(
+                configuration: .init(
+                    displayName: cmd.displayName,
+                    executable: cmd.executable,
+                    arguments: cmd.arguments,
+                    environment: cmd.environment,
+                    workingDirectory: cmd.workingDirectory.map{ AbsolutePath($0) })
+                )
+        }
+
+        // MARK: End of asynchronicity
+        
+        // Create and return an evaluation result for the invocation.
+        return PluginInvocationResult(
+            plugin: self,
+            diagnostics: diagnostics,
+            textOutput: String(decoding: outputText, as: UTF8.self),
+            buildCommands: buildCommands,
+            prebuildCommands: prebuildCommands,
+            userCommands: userCommands)
+    }
+}
+
+
+
+
+
+
+
+
+
 extension PackageGraph {
 
     /// Traverses the graph of reachable targets in a package graph, and applies plugins to targets as needed. Each
@@ -91,87 +256,18 @@ extension PackageGraph {
                     }
                 })
                 
-                // Give each invocation of a plugin a separate output directory.
+                // Assign a plugin working directory based on the package, target, and plugin.
                 let pluginOutputDir = outputDir.appending(components: package.identity.description, target.name, pluginTarget.name)
-                do {
-                    try fileSystem.createDirectory(pluginOutputDir, recursive: true)
-                }
-                catch {
-                    throw PluginEvaluationError.outputDirectoryCouldNotBeCreated(path: pluginOutputDir, underlyingError: error)
-                }
-
-                // Create the input context to pass when applying the plugin to the target.
-                var serializer = PluginScriptRunnerInputSerializer()
-                let pluginInput = try serializer.makePluginScriptRunnerInput(
-                    rootPackage: package,
-                    pluginWorkDir: pluginOutputDir,
-                    builtProductsDir: builtToolsDir,
+                
+                // Invoke the plugin.
+                let result = try pluginTarget.invoke(
+                    action: .createBuildToolCommands(target: target),
+                    package: package,
+                    scriptRunner: pluginScriptRunner,
+                    outputDirectory: pluginOutputDir,
                     toolNamesToPaths: toolNamesToPaths,
-                    pluginAction: .createBuildToolCommands(target: target))
-                
-                // Run the plugin in the context of the target. The details of this are left to the plugin runner.
-                // TODO: This should be asynchronous.
-                let (pluginOutput, emittedText) = try runPluginScript(
-                    sources: pluginTarget.sources,
-                    input: pluginInput,
-                    toolsVersion: package.manifest.toolsVersion,
-                    writableDirectories: [pluginOutputDir],
-                    pluginScriptRunner: pluginScriptRunner,
-                    diagnostics: diagnostics,
-                    fileSystem: fileSystem
-                )
-                
-                // Generate emittable Diagnostics from the plugin output.
-                let diagnostics: [Diagnostic] = pluginOutput.diagnostics.map { diag in
-                    // FIXME: The implementation here is unfortunate; better Diagnostic APIs would make it cleaner.
-                    let location = diag.file.map {
-                        PluginInvocationResult.FileLineLocation(file: $0, line: diag.line)
-                    }
-                    let message: Diagnostic.Message
-                    switch diag.severity {
-                    case .error: message = .error(diag.message)
-                    case .warning: message = .warning(diag.message)
-                    case .remark: message = .remark(diag.message)
-                    }
-                    if let location = location {
-                        return Diagnostic(message: message, location: location)
-                    }
-                    else {
-                        return Diagnostic(message: message)
-                    }
-                }
-                
-                // Extract any emitted text output (received from the stdout/stderr of the plugin invocation).
-                let textOutput = String(decoding: emittedText, as: UTF8.self)
-
-                // FIXME: Validate the plugin output structure here, e.g. paths, etc.
-                
-                // Generate commands from the plugin output. This is where we translate from the transport JSON to our
-                // internal form. We deal with BuildCommands and PrebuildCommands separately.
-                let buildCommands = pluginOutput.buildCommands.map { cmd in
-                    PluginInvocationResult.BuildCommand(
-                        configuration: .init(
-                            displayName: cmd.displayName,
-                            executable: cmd.executable,
-                            arguments: cmd.arguments,
-                            environment: cmd.environment,
-                            workingDirectory: cmd.workingDirectory.map{ AbsolutePath($0) }),
-                        inputFiles: cmd.inputFiles.map{ AbsolutePath($0) },
-                        outputFiles: cmd.outputFiles.map{ AbsolutePath($0) })
-                }
-                let prebuildCommands = pluginOutput.prebuildCommands.map { cmd in
-                    PluginInvocationResult.PrebuildCommand(
-                        configuration: .init(
-                            displayName: cmd.displayName,
-                            executable: cmd.executable,
-                            arguments: cmd.arguments,
-                            environment: cmd.environment,
-                            workingDirectory: cmd.workingDirectory.map{ AbsolutePath($0) }),
-                        outputFilesDirectory: AbsolutePath(cmd.outputFilesDirectory))
-                }
-                
-                // Create an evaluation result from the usage of the plugin by the target.
-                pluginResults.append(PluginInvocationResult(plugin: pluginTarget, diagnostics: diagnostics, textOutput: textOutput, buildCommands: buildCommands, prebuildCommands: prebuildCommands))
+                    fileSystem: fileSystem)
+                pluginResults.append(result)
             }
             
             // Associate the list of results with the target. The list will have one entry for each plugin used by the target.
@@ -273,6 +369,9 @@ public struct PluginInvocationResult {
     /// The prebuild commands generated by the plugin (in the order in which they should run).
     public var prebuildCommands: [PrebuildCommand]
     
+    /// The user commands generated by the plugin (in the order in which they should run).
+    public var userCommands: [UserCommand]
+    
     /// A command to incorporate into the build graph so that it runs during the build whenever it needs to. In
     /// particular it will run whenever any of the specified output files are missing or when the input files have
     /// changed from the last time when it ran.
@@ -293,6 +392,12 @@ public struct PluginInvocationResult {
         // knowing the names of all the outputs before the command runs.
         public var configuration: CommandConfiguration
         public var outputFilesDirectory: AbsolutePath
+    }
+
+    /// A command to run at the user's direct invocation.
+    public struct UserCommand {
+        public var configuration: CommandConfiguration
+        // Currently nothing but there will probably be other parameters here.
     }
 
     /// Launch configuration of a command that can be run (including a display name to show in logs etc).
@@ -380,6 +485,7 @@ struct PluginScriptRunnerInput: Codable {
     /// the capabilities declared for the plugin.
     enum PluginAction: Codable {
         case createBuildToolCommands(targetId: Target.Id)
+        case performUserCommand(targetIds: [Target.Id], arguments: [String])
     }
 
     /// A single absolute path in the wire structure, represented as a tuple
@@ -499,10 +605,6 @@ struct PluginScriptRunnerInputSerializer {
     var packages: [PluginScriptRunnerInput.Package] = []
     var packagesToIds: [ResolvedPackage: PluginScriptRunnerInput.Package.Id] = [:]
     
-    enum PluginAction {
-        case createBuildToolCommands(target: ResolvedTarget)
-    }
-
     mutating func makePluginScriptRunnerInput(
         rootPackage: ResolvedPackage,
         pluginWorkDir: AbsolutePath,
@@ -518,8 +620,10 @@ struct PluginScriptRunnerInputSerializer {
         switch pluginAction {
         case .createBuildToolCommands(let target):
             serializedPluginAction = .createBuildToolCommands(targetId: try serialize(target: target)!)
+        case .performUserCommand(let targets, let arguments):
+            serializedPluginAction = .performUserCommand(targetIds: try targets.compactMap { try serialize(target: $0) }, arguments: arguments)
         }
-        let input = PluginScriptRunnerInput(
+        return PluginScriptRunnerInput(
             paths: paths,
             targets: targets,
             products: products,
@@ -529,7 +633,6 @@ struct PluginScriptRunnerInputSerializer {
             builtProductsDirId: builtProductsDirId,
             toolNamesToPathIds: toolNamesToPathIds,
             pluginAction: serializedPluginAction)
-        return input
     }
     
     /// Adds a path to the serialized structure, if it isn't already there.
@@ -702,5 +805,13 @@ struct PluginScriptRunnerOutput: Codable {
         let environment: [String: String]
         let workingDirectory: String?
         let outputFilesDirectory: String
+    }
+    let userCommands: [UserCommand]
+    struct UserCommand: Codable {
+        let displayName: String
+        let executable: String
+        let arguments: [String]
+        let environment: [String: String]
+        let workingDirectory: String?
     }
 }

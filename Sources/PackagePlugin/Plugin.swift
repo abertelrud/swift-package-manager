@@ -38,8 +38,6 @@
 extension Plugin {
     
     public static func main(_ arguments: [String]) throws {
-        // Read the JSON input.
-        // FIXME: This is just during testing.
         // Look for the input JSON as the last argument of the invocation.
         guard let inputData = ProcessInfo.processInfo.arguments.last?.data(using: .utf8) else {
             fputs("Expected last argument to contain JSON input data in UTF-8 encoding, but didn't find it.", stderr)
@@ -66,6 +64,7 @@ extension Plugin {
         // that SwiftPM specified.
         let commands: [Command]
         switch input.pluginAction {
+        
         case .createBuildToolCommands(let target):
             // Check that the plugin implements the appropriate protocol for its
             // declared capability.
@@ -75,6 +74,16 @@ extension Plugin {
             
             // Ask the plugin to create build commands for the input target.
             commands = try plugin.createBuildCommands(context: context, target: target)
+            
+        case .performUserCommand(targets: let targets, arguments: let arguments):
+            // Check that the plugin implements the appropriate protocol for its
+            // declared capability.
+            guard let plugin = plugin as? UserCommandPlugin else {
+                throw PluginDeserializationError.malformedInputJSON("Plugin declared with `userCommand` capability but doesn't conform to `UserCommandPlugin` protocol")
+            }
+            
+            // Ask the plugin to create user commands for the input targets.
+            commands = try plugin.performUserCommand(context: context, targets: targets, arguments: arguments)
         }
         
         // Construct the output structure to send to SwiftPM.

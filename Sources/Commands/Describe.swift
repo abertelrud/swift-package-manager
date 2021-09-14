@@ -170,6 +170,8 @@ fileprivate struct DescribedPackage: Encodable {
             switch capability {
             case .buildTool:
                 self.type = "buildTool"
+            case .userCommand(let intent,let workflowStage):
+                self.type = "userCommand('\(intent)', '\(workflowStage)')"
             }
         }
     }
