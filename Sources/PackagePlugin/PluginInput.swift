@@ -20,6 +20,7 @@ struct PluginInput {
     let pluginAction: PluginAction
     enum PluginAction {
         case createBuildToolCommands(target: Target)
+        case performUserCommand(targets: [Target], arguments: [String])
     }
     
     internal init(from data: Data) throws {
@@ -41,6 +42,8 @@ struct PluginInput {
         switch input.pluginAction {
         case .createBuildToolCommands(let targetId):
             self.pluginAction = .createBuildToolCommands(target: try deserializer.target(for: targetId))
+        case .performUserCommand(let targetIds, let arguments):
+            self.pluginAction = .performUserCommand(targets: try targetIds.map{ try deserializer.target(for: $0) }, arguments: arguments)
         }
     }
 }
@@ -297,6 +300,7 @@ fileprivate struct WireInput: Decodable {
     /// the capabilities declared for the plugin.
     enum PluginAction: Decodable {
         case createBuildToolCommands(targetId: Target.Id)
+        case performUserCommand(targetIds: [Target.Id], arguments: [String])
     }
 
     /// A single absolute path in the wire structure, represented as a tuple

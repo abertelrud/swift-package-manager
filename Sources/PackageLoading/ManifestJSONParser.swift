@@ -596,8 +596,65 @@ extension TargetDescription.PluginCapability {
         switch type {
         case "buildTool":
             self = .buildTool
+        case "userCommand":
+            let intent = try TargetDescription.PluginUserCommandIntent(v4: json.getJSON("intent"))
+            let workflowStage = try TargetDescription.PluginUserCommandWorkflowStage(v4: json.getJSON("workflowStage"))
+            self = .userCommand(intent: intent, workflowStage: workflowStage)
         default:
-            throw InternalError("invalid type \(type)")
+            throw InternalError("invalid plugin capability type: \(type)")
+        }
+    }
+}
+
+extension TargetDescription.PluginUserCommandIntent {
+    fileprivate init(v4 json: JSON) throws {
+        let type = try json.get(String.self, forKey: "type")
+        switch type {
+        case "documentationGeneration":
+            self = .documentationGeneration
+        case "testReportGeneration":
+            self = .testReportGeneration
+        case "sourceCodeFormatting":
+            self = .sourceCodeFormatting
+        case "custom":
+            let verb = try json.get(String.self, forKey: "verb")
+            let desc = try json.get(String.self, forKey: "desc")
+            self = .custom(verb: verb, description: desc)
+        default:
+            throw InternalError("invalid plugin user command intent type: \(type)")
+        }
+    }
+}
+
+extension TargetDescription.PluginUserCommandWorkflowStage {
+    fileprivate init(v4 json: JSON) throws {
+        let type = try json.get(String.self, forKey: "type")
+        switch type {
+        case "afterPackageDependencyResolution":
+            self = .afterPackageDependencyResolution
+        case "afterBuilding":
+            let reqs = try json.getArray("requirements").map(TargetDescription.PluginUserCommandBuildRequirement.init(v4:))
+            self = .afterBuilding(requirements: reqs)
+        case "afterTesting":
+            self = .afterTesting
+        default:
+            throw InternalError("invalid plugin user command workflow stage type: \(type)")
+        }
+    }
+}
+
+extension TargetDescription.PluginUserCommandBuildRequirement {
+    fileprivate init(v4 json: JSON) throws {
+        let type = try json.get(String.self, forKey: "type")
+        switch type {
+        case "debugBuild":
+            self = .debugBuild
+        case "releaseBuild":
+            self = .releaseBuild
+        case "symbolGraph":
+            self = .symbolGraph
+        default:
+            throw InternalError("invalid plugin user command build requirement type: \(type)")
         }
     }
 }

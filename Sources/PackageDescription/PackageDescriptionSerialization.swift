@@ -224,11 +224,11 @@ extension SystemPackageProvider: Encodable {
 
 extension Target.PluginCapability: Encodable {
     private enum CodingKeys: CodingKey {
-        case type
+        case type, intent, workflowStage
     }
 
     private enum Capability: String, Encodable {
-        case buildTool
+        case buildTool, userCommand
     }
 
     public func encode(to encoder: Encoder) throws {
@@ -236,6 +236,81 @@ extension Target.PluginCapability: Encodable {
         switch self {
         case ._buildTool:
             try container.encode(Capability.buildTool, forKey: .type)
+        case ._userCommand(let intent, let workflowStage):
+            try container.encode(Capability.userCommand, forKey: .type)
+            try container.encode(intent, forKey: .intent)
+            try container.encode(workflowStage, forKey: .workflowStage)
+        }
+    }
+}
+
+extension PluginUserCommandIntent: Encodable {
+    private enum CodingKeys: CodingKey {
+        case type, verb, desc
+    }
+
+    private enum Intent: String, Encodable {
+        case documentationGeneration, testReportGeneration, sourceCodeFormatting, custom
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        switch self {
+        case .documentationGeneration:
+            try container.encode(Intent.documentationGeneration, forKey: .type)
+        case .testReportGeneration:
+            try container.encode(Intent.testReportGeneration, forKey: .type)
+        case .sourceCodeFormatting:
+            try container.encode(Intent.sourceCodeFormatting, forKey: .type)
+        case .custom(let verb, let description):
+            try container.encode(Intent.custom, forKey: .type)
+            try container.encode(verb, forKey: .verb)
+            try container.encode(description, forKey: .desc)
+        }
+    }
+}
+
+extension PluginUserCommandWorkflowStage: Encodable {
+    private enum CodingKeys: CodingKey {
+        case type, requirements
+    }
+
+    private enum WorkflowStage: String, Encodable {
+        case afterPackageDependencyResolution, afterBuilding, afterTesting
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        switch self {
+        case .afterPackageDependencyResolution:
+            try container.encode(WorkflowStage.afterPackageDependencyResolution, forKey: .type)
+        case .afterBuilding(let requirements):
+            try container.encode(WorkflowStage.afterBuilding, forKey: .type)
+            try container.encode(requirements, forKey: .requirements)
+        case .afterTesting:
+            try container.encode(WorkflowStage.afterTesting, forKey: .type)
+        }
+    }
+}
+
+extension PluginUserCommandBuildRequirement: Encodable {
+    private enum CodingKeys: CodingKey {
+        case type
+    }
+
+    private enum Requirement: String, Encodable {
+        case debugBuild, releaseBuild, symbolGraph
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        switch self {
+        case .debugBuild:
+            try container.encode(Requirement.debugBuild, forKey: .type)
+        case .releaseBuild:
+            try container.encode(Requirement.releaseBuild, forKey: .type)
+        case .symbolGraph:
+            try container.encode(Requirement.symbolGraph, forKey: .type)
         }
     }
 }

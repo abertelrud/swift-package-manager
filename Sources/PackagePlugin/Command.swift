@@ -29,6 +29,13 @@ public enum Command {
         environment: [String: String] = [:],
         workingDirectory: Path? = nil,
         outputFilesDirectory: Path)
+    
+    case _userCommand(
+        displayName: String?,
+        executable: Path,
+        arguments: [String],
+        environment: [String: String] = [:],
+        workingDirectory: Path? = nil)
 }
 
 public extension Command {
@@ -144,7 +151,7 @@ public extension Command {
         environment: [String: String] = [:],
         outputFilesDirectory: Path
     ) -> Command {
-       return  _prebuildCommand(displayName: displayName, executable: executable, arguments: arguments, environment: environment, workingDirectory: nil, outputFilesDirectory: outputFilesDirectory)
+       return _prebuildCommand(displayName: displayName, executable: executable, arguments: arguments, environment: environment, workingDirectory: nil, outputFilesDirectory: outputFilesDirectory)
     }
 
     /// Creates a command to run before the build. The executable should be a
@@ -188,4 +195,15 @@ public extension Command {
     ) -> Command {
         return _prebuildCommand(displayName: displayName, executable: executable, arguments: arguments, environment: environment, workingDirectory: workingDirectory, outputFilesDirectory: outputFilesDirectory)
     }
+    
+    static func userCommand(
+        displayName: String?,
+        executable: Path,
+        arguments: [String],
+        environment: [String: String] = [:],
+        workingDirectory: Path? = nil
+    ) -> Command {
+        return _userCommand(displayName: displayName, executable: executable, arguments: arguments, environment: environment, workingDirectory: workingDirectory)
+    }
+
 }

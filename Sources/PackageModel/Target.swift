@@ -611,16 +611,22 @@ public final class BinaryTarget: Target {
 
 public final class PluginTarget: Target {
 
+    /// Declared capability of the plugin.
     public let capability: PluginCapability
-
+    
+    /// API version to use for PackagePlugin API availability.
+    public let apiVersion: ToolsVersion
+    
     public init(
         name: String,
         platforms: [SupportedPlatform] = [],
         sources: Sources,
+        apiVersion: ToolsVersion,
         pluginCapability: PluginCapability,
         dependencies: [Target.Dependency] = []
     ) {
         self.capability = pluginCapability
+        self.apiVersion = apiVersion
         super.init(
             name: name,
             defaultLocalization: nil,
@@ -635,26 +641,30 @@ public final class PluginTarget: Target {
 
     private enum CodingKeys: String, CodingKey {
         case capability
+        case apiVersion
     }
 
     public override func encode(to encoder: Encoder) throws {
         var container = encoder.container(keyedBy: CodingKeys.self)
         try container.encode(self.capability, forKey: .capability)
+        try container.encode(self.apiVersion, forKey: .apiVersion)
         try super.encode(to: encoder)
     }
 
     required public init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         self.capability = try container.decode(PluginCapability.self, forKey: .capability)
+        self.apiVersion = try container.decode(ToolsVersion.self, forKey: .apiVersion)
         try super.init(from: decoder)
     }
 }
 
-public enum PluginCapability: Equatable, Codable {
+public enum PluginCapability: Hashable, Codable {
     case buildTool
+    case userCommand(intent: PluginUserCommandIntent, workflowStage: PluginUserCommandWorkflowStage)
 
     private enum CodingKeys: String, CodingKey {
-        case buildTool
+        case buildTool, userCommand
     }
 
     public func encode(to encoder: Encoder) throws {
@@ -662,6 +672,10 @@ public enum PluginCapability: Equatable, Codable {
         switch self {
         case .buildTool:
             try container.encodeNil(forKey: .buildTool)
+        case .userCommand(let a1, let a2):
+            var unkeyedContainer = container.nestedUnkeyedContainer(forKey: .userCommand)
+            try unkeyedContainer.encode(a1)
+            try unkeyedContainer.encode(a2)
         }
     }
 
@@ -673,6 +687,74 @@ public enum PluginCapability: Equatable, Codable {
         switch key {
         case .buildTool:
             self = .buildTool
+        case .userCommand:
+            var unkeyedValues = try values.nestedUnkeyedContainer(forKey: key)
+            let a1 = try unkeyedValues.decode(PluginUserCommandIntent.self)
+            let a2 = try unkeyedValues.decode(PluginUserCommandWorkflowStage.self)
+            self = .userCommand(intent: a1, workflowStage: a2)
+        }
+    }
+    
+    public init(from desc: TargetDescription.PluginCapability) {
+        switch desc {
+        case .buildTool:
+            self = .buildTool
+        case .userCommand(intent: let intent, workflowStage: let workflowStage):
+            self = .userCommand(intent: .init(from: intent), workflowStage: .init(from: workflowStage))
+        }
+    }
+}
+
+public enum PluginUserCommandIntent: Hashable, Codable {
+    case documentationGeneration
+    case testReportGeneration
+    case sourceCodeFormatting
+    case custom(verb: String, description: String)
+    
+    public init(from desc: TargetDescription.PluginUserCommandIntent) {
+        switch desc {
+        case .documentationGeneration:
+            self = .documentationGeneration
+        case .testReportGeneration:
+            self = .testReportGeneration
+        case .sourceCodeFormatting:
+            self = .sourceCodeFormatting
+        case .custom(verb: let verb, description: let description):
+            self = .custom(verb: verb, description: description)
+        }
+    }
+}
+
+public enum PluginUserCommandWorkflowStage: Hashable, Codable {
+    case afterPackageDependencyResolution
+    case afterBuilding(requirements: [PluginUserCommandBuildRequirement])
+    case afterTesting
+    
+    public init(from desc: TargetDescription.PluginUserCommandWorkflowStage) {
+        switch desc {
+        case .afterPackageDependencyResolution:
+            self = .afterPackageDependencyResolution
+        case .afterBuilding(requirements: let requirements):
+            self = .afterBuilding(requirements: requirements.map{ .init(from: $0) })
+        case .afterTesting:
+            self = .afterTesting
+        }
+    }
+}
+
+public enum PluginUserCommandBuildRequirement: Hashable, Codable {
+    case debugBuild
+    case releaseBuild
+    case symbolGraph
+    
+    public init(from desc: TargetDescription.PluginUserCommandBuildRequirement) {
+        switch desc {
+        case .debugBuild:
+            self = .debugBuild
+        case .releaseBuild:
+            self = .releaseBuild
+        case .symbolGraph:
+            self = .symbolGraph
         }
     }
 }
