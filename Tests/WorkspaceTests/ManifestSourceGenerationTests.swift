@@ -38,7 +38,7 @@ class ManifestSourceGenerationTests: XCTestCase {
             }
 
             // Generate source code for the loaded manifest,
-            let newContents = manifest.generatedManifestFileContents
+            let newContents = manifest.generateManifestFileContents(customProductTypeHandler: nil)
             
             // Check that the tools version was serialized properly.
             let versionSpacing = (toolsVersion >= .v5_4) ? " " : ""
@@ -283,5 +283,66 @@ class ManifestSourceGenerationTests: XCTestCase {
             )
             """
         try testManifestWritingRoundTrip(manifestContents: manifestContents, toolsVersion: .v5_5)
+    }
+    
+    func testCustomProductTypes() throws {
+        // Create a manifest containing a fictional custom product having encoded custom properties.
+        let manifest = Manifest(
+            name: "MyLibrary",
+            path: AbsolutePath("/tmp/MyLibrary"),
+            packageKind: .root,
+            packageLocation: "/tmp/MyLibrary",
+            platforms: [],
+            toolsVersion: .v5_5,
+            products: [
+                .init(
+                    name: "SampleApp",
+                    type: .custom("sample.app-type", Data("{\"identifier\":\"org.me.my-app\",\"version\":42,\"genre\":\"utility\"}".utf8)),
+                    targets: []
+                )
+            ]
+        )
+        
+        // Generate the manifest contents, specifying that that the SampleProductTypes module should be included, and providing a handler for our custom product type.
+        let contents = try manifest.generateManifestFileContents(customImportModuleNames: ["SampleProductTypes"], customProductTypeHandler: {
+            // Generate a SourceCodeFragement for an instance of our custom product type.
+            customProductTypeName, encodedPropertyData in
+            XCTAssertEqual(customProductTypeName, "sample.app-type")
+            
+            // This is the struct that's encoded in the product properties.
+            struct SampleAppProperties: Codable {
+                var identifier: String
+                var version: Int
+                var genre: Genre
+                enum Genre: String, Codable {
+                    case design
+                    case game
+                    case utility
+                }
+            }
+            
+            // Decode the product properties.
+            let decoder = JSONDecoder()
+            let properties = try decoder.decode(SampleAppProperties.self, from: encodedPropertyData)
+            
+            // Check that we got the expected values.
+            XCTAssertEqual(properties.identifier, "org.me.my-app")
+            XCTAssertEqual(properties.version, 42)
+            XCTAssertEqual(properties.genre, .utility)
+            
+            // Construct and return a SourceCodeFragment.
+            return SourceCodeFragment(enum: "SampleAppType", subnodes: [
+                SourceCodeFragment(key: "identifier", string: properties.identifier),
+                SourceCodeFragment(key: "version", integer: properties.version),
+                SourceCodeFragment(key: "genre", enum: properties.genre.rawValue)
+            ], multiline: true)
+        })
+        
+        // Check that we generated what we expected.
+        XCTAssertTrue(contents.contains("import SampleProductTypes"), "contents: \(contents)")
+        XCTAssertTrue(contents.contains(".SampleAppType("), "contents: \(contents)")
+        XCTAssertTrue(contents.contains("identifier: \"org.me.my-app\""), "contents: \(contents)")
+        XCTAssertTrue(contents.contains("version: 42"), "contents: \(contents)")
+        XCTAssertTrue(contents.contains("genre: .utility"), "contents: \(contents)")
     }
 }

@@ -405,6 +405,8 @@ extension PackageModel.ProductType {
             self = .plugin
         case .test:
             self = .test
+        case .custom(let typeName, let propertyData):
+            self = .custom(typeName, propertyData)
         }
     }
 }

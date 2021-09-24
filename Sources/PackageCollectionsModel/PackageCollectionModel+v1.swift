@@ -330,12 +330,15 @@ extension PackageCollectionModel.V1 {
 
         /// A test product.
         case test
+        
+        /// A custom type (the properties are encoded in opaque data).
+        case custom(_ typeName: String, _ propertyData: Data)
     }
 }
 
 extension PackageCollectionModel.V1.ProductType: Codable {
     private enum CodingKeys: String, CodingKey {
-        case library, executable, plugin, test
+        case library, executable, plugin, test, custom
     }
 
     public func encode(to encoder: Encoder) throws {
@@ -350,6 +353,10 @@ extension PackageCollectionModel.V1.ProductType: Codable {
             try container.encodeNil(forKey: .plugin)
         case .test:
             try container.encodeNil(forKey: .test)
+        case .custom(let a1, let a2):
+            var unkeyedContainer = container.nestedUnkeyedContainer(forKey: .custom)
+            try unkeyedContainer.encode(a1)
+            try unkeyedContainer.encode(a2)
         }
     }
 
@@ -369,6 +376,11 @@ extension PackageCollectionModel.V1.ProductType: Codable {
             self = .executable
         case .plugin:
             self = .plugin
+        case .custom:
+            var unkeyedValues = try values.nestedUnkeyedContainer(forKey: key)
+            let a1 = try unkeyedValues.decode(String.self)
+            let a2 = try unkeyedValues.decode(Data.self)
+            self = .custom(a1, a2)
         }
     }
 }
