@@ -906,14 +906,8 @@ extension SwiftPackageTool {
             case "generate-documentation":
                 // FIXME: This seems like a suboptimal way to run the plugins.
                 for plugin in availablePlugins {
-                    if case .userCommand(.documentationGeneration, let workflowStage) = plugin.capability {
-                        // Use the workflow stage to determine what actions to take before invoking the plugin.
-                        switch workflowStage {
-                            
-                        case .afterPackageDependencyResolution:
-                            // There is nothing additional to do here; we've already resolved the package graph here.
-                            break
-                            
+                    if case .userCommand(.documentationGeneration) = plugin.capability {
+/*
                         case .afterBuilding(requirements: let requirements):
                             print(requirements)
                             guard let subset = options.buildSubset(observabilityScope: swiftTool.observabilityScope)
@@ -928,11 +922,7 @@ extension SwiftPackageTool {
                             } catch _ as Diagnostics {
                                 throw ExitCode.failure
                             }
-
-                        case .afterTesting:
-                            // FIXME: Not yet supported.
-                            break
-                        }
+*/
                         
                         // Configure the plugin invocation inputs.
 

@@ -110,7 +110,7 @@ public struct TargetDescription: Equatable, Codable {
     /// Represents the declared capability of a package plugin.
     public enum PluginCapability: Equatable {
         case buildTool
-        case userCommand(intent: PluginUserCommandIntent, workflowStage: PluginUserCommandWorkflowStage)
+        case userCommand(intent: PluginUserCommandIntent)
     }
 
     public enum PluginUserCommandIntent: Equatable, Codable {
@@ -118,18 +118,6 @@ public struct TargetDescription: Equatable, Codable {
         case testReportGeneration
         case sourceCodeFormatting
         case custom(verb: String, description: String)
-    }
-
-    public enum PluginUserCommandWorkflowStage: Equatable, Codable {
-        case afterPackageDependencyResolution
-        case afterBuilding(requirements: [PluginUserCommandBuildRequirement])
-        case afterTesting
-    }
-
-    public enum PluginUserCommandBuildRequirement: Equatable, Codable {
-        case debugBuild
-        case releaseBuild
-        case symbolGraph
     }
 
     /// The target-specific build settings declared in this target.
@@ -287,10 +275,9 @@ extension TargetDescription.PluginCapability: Codable {
         switch self {
         case .buildTool:
             try container.encodeNil(forKey: .buildTool)
-        case let .userCommand(a1, a2):
+        case let .userCommand(a1):
             var unkeyedContainer = container.nestedUnkeyedContainer(forKey: .userCommand)
             try unkeyedContainer.encode(a1)
-            try unkeyedContainer.encode(a2)
         }
     }
 
@@ -305,8 +292,7 @@ extension TargetDescription.PluginCapability: Codable {
         case .userCommand:
             var unkeyedValues = try values.nestedUnkeyedContainer(forKey: key)
             let a1 = try unkeyedValues.decode(TargetDescription.PluginUserCommandIntent.self)
-            let a2 = try unkeyedValues.decode(TargetDescription.PluginUserCommandWorkflowStage.self)
-            self = .userCommand(intent: a1, workflowStage: a2)
+            self = .userCommand(intent: a1)
         }
     }
 }

@@ -661,7 +661,7 @@ public final class PluginTarget: Target {
 
 public enum PluginCapability: Hashable, Codable {
     case buildTool
-    case userCommand(intent: PluginUserCommandIntent, workflowStage: PluginUserCommandWorkflowStage)
+    case userCommand(intent: PluginUserCommandIntent)
 
     private enum CodingKeys: String, CodingKey {
         case buildTool, userCommand
@@ -672,10 +672,9 @@ public enum PluginCapability: Hashable, Codable {
         switch self {
         case .buildTool:
             try container.encodeNil(forKey: .buildTool)
-        case .userCommand(let a1, let a2):
+        case .userCommand(let a1):
             var unkeyedContainer = container.nestedUnkeyedContainer(forKey: .userCommand)
             try unkeyedContainer.encode(a1)
-            try unkeyedContainer.encode(a2)
         }
     }
 
@@ -690,8 +689,7 @@ public enum PluginCapability: Hashable, Codable {
         case .userCommand:
             var unkeyedValues = try values.nestedUnkeyedContainer(forKey: key)
             let a1 = try unkeyedValues.decode(PluginUserCommandIntent.self)
-            let a2 = try unkeyedValues.decode(PluginUserCommandWorkflowStage.self)
-            self = .userCommand(intent: a1, workflowStage: a2)
+            self = .userCommand(intent: a1)
         }
     }
     
@@ -699,8 +697,8 @@ public enum PluginCapability: Hashable, Codable {
         switch desc {
         case .buildTool:
             self = .buildTool
-        case .userCommand(intent: let intent, workflowStage: let workflowStage):
-            self = .userCommand(intent: .init(from: intent), workflowStage: .init(from: workflowStage))
+        case .userCommand(intent: let intent):
+            self = .userCommand(intent: .init(from: intent))
         }
     }
 }
@@ -721,40 +719,6 @@ public enum PluginUserCommandIntent: Hashable, Codable {
             self = .sourceCodeFormatting
         case .custom(verb: let verb, description: let description):
             self = .custom(verb: verb, description: description)
-        }
-    }
-}
-
-public enum PluginUserCommandWorkflowStage: Hashable, Codable {
-    case afterPackageDependencyResolution
-    case afterBuilding(requirements: [PluginUserCommandBuildRequirement])
-    case afterTesting
-    
-    public init(from desc: TargetDescription.PluginUserCommandWorkflowStage) {
-        switch desc {
-        case .afterPackageDependencyResolution:
-            self = .afterPackageDependencyResolution
-        case .afterBuilding(requirements: let requirements):
-            self = .afterBuilding(requirements: requirements.map{ .init(from: $0) })
-        case .afterTesting:
-            self = .afterTesting
-        }
-    }
-}
-
-public enum PluginUserCommandBuildRequirement: Hashable, Codable {
-    case debugBuild
-    case releaseBuild
-    case symbolGraph
-    
-    public init(from desc: TargetDescription.PluginUserCommandBuildRequirement) {
-        switch desc {
-        case .debugBuild:
-            self = .debugBuild
-        case .releaseBuild:
-            self = .releaseBuild
-        case .symbolGraph:
-            self = .symbolGraph
         }
     }
 }
