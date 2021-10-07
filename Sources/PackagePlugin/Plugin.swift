@@ -82,8 +82,11 @@ extension Plugin {
                 throw PluginDeserializationError.malformedInputJSON("Plugin declared with `userCommand` capability but doesn't conform to `UserCommandPlugin` protocol")
             }
             
-            // Ask the plugin to create user commands for the input targets.
-            commands = try plugin.performUserCommand(context: context, targets: targets, arguments: arguments)
+            // Invoke the plugin.
+            try plugin.performUserCommand(context: context, targets: targets, arguments: arguments)
+
+            // For user commands there are currently no return commands (whatever the plugin does, it invokes directly).
+            commands = []
         }
         
         // Construct the output structure to send to SwiftPM.
