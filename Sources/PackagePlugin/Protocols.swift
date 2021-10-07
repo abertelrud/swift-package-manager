@@ -76,10 +76,13 @@ extension BuildToolPlugin {
 
 /// Defines functionality for all plugins having a `userCommand` capability.
 public protocol UserCommandPlugin: Plugin {
+    /// Invoked by SwiftPM to perform the custom actions of the user command.
+    /// TODO: Define specifically how this is done, in particular how the
+    /// plugin can cause builds to happen etc.
     func performUserCommand(
         context: PluginContext,
         targets: [Target],
         arguments: [String]
-    ) throws -> [Command]
+    ) throws
 }
 

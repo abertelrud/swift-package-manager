@@ -31,13 +31,6 @@ struct PluginOutput {
             return .init(displayName: name, executable: exec.string, arguments: args, environment: env, workingDirectory: workDir.map{ $0.string }, outputFilesDirectory: outputDir.string)
         }
 
-        // Also the user commands.
-        // FIXME: We should unify these.
-        output.userCommands = commands.compactMap {
-            guard case let ._userCommand(name, exec, args, env, workDir) = $0 else { return nil }
-            return .init(displayName: name, executable: exec.string, arguments: args, environment: env, workingDirectory: workDir.map{ $0.string })
-        }
-
         // Create the serialized form of any diagnostics.
         output.diagnostics = diagnostics.map {
             switch $0.severity {
@@ -64,7 +57,6 @@ struct PluginOutput {
 fileprivate struct WireOutput: Encodable {
     var buildCommands: [BuildCommand] = []
     var prebuildCommands: [PrebuildCommand] = []
-    var userCommands: [UserCommand] = []
     var diagnostics: [Diagnostic] = []
 
     struct BuildCommand: Encodable {
@@ -84,14 +76,6 @@ fileprivate struct WireOutput: Encodable {
         let environment: [String: String]
         let workingDirectory: String?
         let outputFilesDirectory: String
-    }
-
-    struct UserCommand: Encodable {
-        let displayName: String?
-        let executable: String
-        let arguments: [String]
-        let environment: [String: String]
-        let workingDirectory: String?
     }
 
     struct Diagnostic: Encodable {

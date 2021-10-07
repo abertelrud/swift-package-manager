@@ -29,13 +29,6 @@ public enum Command {
         environment: [String: String] = [:],
         workingDirectory: Path? = nil,
         outputFilesDirectory: Path)
-    
-    case _userCommand(
-        displayName: String?,
-        executable: Path,
-        arguments: [String],
-        environment: [String: String] = [:],
-        workingDirectory: Path? = nil)
 }
 
 public extension Command {
@@ -194,16 +187,6 @@ public extension Command {
         outputFilesDirectory: Path
     ) -> Command {
         return _prebuildCommand(displayName: displayName, executable: executable, arguments: arguments, environment: environment, workingDirectory: workingDirectory, outputFilesDirectory: outputFilesDirectory)
-    }
-    
-    static func userCommand(
-        displayName: String?,
-        executable: Path,
-        arguments: [String],
-        environment: [String: String] = [:],
-        workingDirectory: Path? = nil
-    ) -> Command {
-        return _userCommand(displayName: displayName, executable: executable, arguments: arguments, environment: environment, workingDirectory: workingDirectory)
     }
 
 }
