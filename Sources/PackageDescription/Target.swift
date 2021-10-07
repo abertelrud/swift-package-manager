@@ -127,11 +127,11 @@ public final class Target {
     private var _pluginCapability: PluginCapability?
     
     /// The different types of capability that a plugin can provide. In this
-    /// version of SwiftPM, only build tool plugins are supported; this enum
-    /// will be extended as new plugin capabilities are added.
+    /// version of SwiftPM, build tool and user command plugins are supported;
+    /// this enum will be extended as new plugin capabilities are added.
     public enum PluginCapability {
         case _buildTool
-        case _userCommand(PluginUserCommandIntent, PluginUserCommandWorkflowStage)
+        case _userCommand(PluginUserCommandIntent)
     }
     
     /// The target's C build settings.
@@ -1017,15 +1017,11 @@ extension Target.PluginCapability {
     /// The package can specify
     @available(_PackageDescription, introduced: 5.6)
     public static func userCommand(
-        /// The semantic intent of the plugin (either one of the predefined ones, or
-        /// a custom intent).
-        intent: PluginUserCommandIntent,
-        
-        /// The stage of the workflow at which the plugin should be invoked. This in
-        /// turn determines what information it is provided when it is invoked.
-        workflowStage: PluginUserCommandWorkflowStage
+        /// The semantic intent of the plugin (either one of the predefined ones,
+        /// or a custom intent).
+        intent: PluginUserCommandIntent
     ) -> Target.PluginCapability {
-        return ._userCommand(intent, workflowStage)
+        return ._userCommand(intent)
     }
 }
 
@@ -1049,36 +1045,6 @@ public enum PluginUserCommandIntent {
     /// verb through which to invoke it.
     case custom(verb: String, description: String)
 }
-
-public enum PluginUserCommandWorkflowStage {
-    /// The plugin will be run after package dependency resolution is complete, but
-    /// before other actions such as building or running tests.
-    case afterPackageDependencyResolution
-    
-    /// The plugin will be run after building the package. The requirements specify
-    /// the information that the plugin needs from the build; this may affect how the
-    /// build is carried out, e.g. whether symbol graph information or linkage maps
-    /// are created, etc.
-    case afterBuilding(requirements: [PluginUserCommandBuildRequirement])
-    
-    /// The plugin will be run after the tests defined in the package have been run.
-    /// A JSON file describing the results of running the tests will be provided.
-    case afterTesting
-}
-
-public enum PluginUserCommandBuildRequirement {
-    /// The plugin requires that the package has been built using the debug configu-
-    /// ration.
-    case debugBuild
-    
-    /// The plugin requires that the package has been built using the release configu-
-    /// ration.
-    case releaseBuild
-    
-    /// The plugin requires that symbol graph files have been generated.
-    case symbolGraph
-}
-
 
 extension Target.PluginUsage {
     /// Specifies use of a plugin target in the same package.

@@ -23,8 +23,7 @@ let package = Package(
         .plugin(
             name: "MyUserCommand",
             capability: .userCommand(
-                intent: .documentationGeneration,
-                workflowStage: .afterBuilding(requirements: [.symbolGraph])
+                intent: .documentationGeneration
             )
         )
     ]

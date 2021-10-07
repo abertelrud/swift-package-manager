@@ -415,7 +415,7 @@ fileprivate extension SourceCodeFragment {
         switch capability {
         case .buildTool:
             self.init(enum: "buildTool", subnodes: [])
-        case .userCommand(_, _):
+        case .userCommand(_):
             self.init(enum: "userCommand", subnodes: [])
         }
     }
