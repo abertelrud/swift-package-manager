@@ -90,6 +90,7 @@ class PluginInvocationTests: XCTestCase {
             func runPluginScript(
                 sources: Sources,
                 inputJSON: Data,
+                pluginArguments: [String],
                 toolsVersion: ToolsVersion,
                 writableDirectories: [AbsolutePath],
                 diagnostics: DiagnosticsEngine,
