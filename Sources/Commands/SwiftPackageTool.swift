@@ -61,7 +61,7 @@ public struct SwiftPackageTool: ParsableCommand {
             ArchiveSource.self,
             CompletionTool.self,
             
-            InvokePluginCommand.self
+            PluginCommand.self
         ] + (ProcessInfo.processInfo.environment["SWIFTPM_ENABLE_SNIPPETS"] == "1" ? [Learn.self] : [ParsableCommand.Type]()),
         helpNames: [.short, .long, .customLong("help", withSingleDash: true)])
 
@@ -877,9 +877,10 @@ extension SwiftPackageTool {
         }
     }
 
-    // Experimental command to invoke user command plugins. This will probably change so that any non-builtin command
-    // can be implemented as a user command, once I've figured out how to do that in SwiftArgumentParser.
-    struct InvokePluginCommand: SwiftCommand {
+    // Experimental command to invoke user command plugins. This will probably change so that command that is not
+    // recognized as a built-in command will cause `swift-package` to search for plugin commands; first I need to
+    // figure out how to get SwiftArgumentParser to do support this.
+    struct PluginCommand: SwiftCommand {
         static let configuration = CommandConfiguration(
             commandName: "plugin",
             abstract: "Invoke a plugin-defined user command (the way in which such commands are invoked is temporary)"
@@ -888,86 +889,146 @@ extension SwiftPackageTool {
         @OptionGroup(_hiddenFromHelp: true)
         var swiftOptions: SwiftToolOptions
 
-        @OptionGroup()
-        var options: BuildToolOptions
-        
+        /// The specific target to apply the plugin to.
+        @Option(name: .customLong("target"), help: "Target to which the plugin should be applied")
+        var targetNames: [String] = []
+
+        /// The name of the command implemented by a plugin. It one of the standard commands that map to predefined
+        /// intents, such as "generate-documentation", or it can be a custom command.
         @Argument(help: "Name of the plugin-provided user command to run")
         var command: String
+
+        @Argument(help: "Any arguments to pass to the plugin")
+        var arguments: [String] = []
 
         func run(_ swiftTool: SwiftTool) throws {
             // Load the workspace and resolve the package graph.
             let packageGraph = try swiftTool.loadPackageGraph()
             
-            // Determine all the available targets.
+            // Find all the available plugin targets.
             let availablePlugins = packageGraph.allTargets.compactMap{ $0.underlyingTarget as? PluginTarget }
             
-            switch command {
-            // For now we treat generate-documentation specially.
-            case "generate-documentation":
-                // FIXME: This seems like a suboptimal way to run the plugins.
-                for plugin in availablePlugins {
-                    if case .userCommand(.documentationGeneration) = plugin.capability {
-/*
-                        case .afterBuilding(requirements: let requirements):
-                            print(requirements)
-                            guard let subset = options.buildSubset(observabilityScope: swiftTool.observabilityScope)
-                                else { throw ExitCode.failure }
-                            let buildParameters = try swiftTool.buildParameters()
-                            if requirements.contains(.symbolGraph) {
-                                print(buildParameters.symbolGraph)
-                            }
-                            let buildSystem = try swiftTool.createBuildSystem(explicitProduct: options.product, buildParameters: buildParameters)
-                            do {
-                                try buildSystem.build(subset: subset)
-                            } catch _ as Diagnostics {
-                                throw ExitCode.failure
-                            }
-*/
-                        
-                        // Configure the plugin invocation inputs.
-
-                        // The `plugins` directory is inside the workspace's main data directory, and contains all
-                        // temporary files related to all plugins in the workspace.
-                        let dataDir = try swiftTool.getActiveWorkspace().location.workingDirectory
-                        let pluginsDir = dataDir.appending(component: "plugins")
-
-                        // The `cache` directory is in the plugins directory and is where the plugin script runner
-                        // caches compiled plugin binaries and any other derived information.
-                        let cacheDir = pluginsDir.appending(component: "cache")
-                        let pluginScriptRunner = DefaultPluginScriptRunner(cacheDir: cacheDir, toolchain: try swiftTool.getToolchain().configuration)
-
-                        // The `outputs` directory contains subdirectories for each combination of package, target, and plugin.
-                        // Each usage of a plugin has an output directory that is writable by the plugin, where it can write
-                        // additional files, and to which it can configure tools to write their outputs, etc.
-                        let outputDir = pluginsDir.appending(component: "outputs")
-
-                        // The `tools` directory contains any command line tools (executables) that are available for any commands
-                        // defined by the executable.
-                        // FIXME: At the moment we just pass the built products directory for the host. We will need to extend this
-                        // with a map of the names of tools available to each plugin. In particular this would not work with any
-                        // binary targets.
-                        let builtToolsDir = dataDir.appending(components: "plugin-tools")
-
-                        // Create the cache directory, if needed.
-                        try localFileSystem.createDirectory(cacheDir, recursive: true)
-
-                        // Ask the graph to invoke plugins, and return the result.
-                        let result = try plugin.invoke(
-                            action: .performUserCommand(targets: packageGraph.rootPackages.first!.targets, arguments: ["FIXME"]),
-                            package: packageGraph.rootPackages.first!,
-                            scriptRunner: pluginScriptRunner,
-                            outputDirectory: outputDir,
-                            toolNamesToPaths: [:],
-                            fileSystem: localFileSystem)
-                        print(result)
-                    }
+            // Find the plugins that match the command.
+            let matchingPlugins = availablePlugins.filter {
+                // FIXME: this mapping of speific intents is too hardcoded.
+                if case .userCommand(.documentationGeneration) = $0.capability, command == "generate-documentation" {
+                    return true
                 }
-                print(availablePlugins)
-            default:
-                print("unknown command: \(command)")
+                return false
             }
             
-            swiftTool.outputStream.flush()
+            // Complain if we didn't find exactly one.
+            if matchingPlugins.isEmpty {
+                swiftTool.observabilityScope.emit(error: "No plugins found for '\(command)'")
+                throw ExitCode.failure
+            }
+            else if matchingPlugins.count > 1 {
+                swiftTool.observabilityScope.emit(error: "\(matchingPlugins.count) plugins found for '\(command)'")
+                throw ExitCode.failure
+            }
+            
+            // At this point we know we found exactly one, so run the plugin.
+            let plugin = matchingPlugins[0]
+            print("Running plugin \(plugin)")
+            
+            // Find the targets (if any) specified by the user.
+            // FIXME: We should probably only look in the top-level package, not all of them.
+            var targets: [String: ResolvedTarget] = [:]
+            for target in packageGraph.allTargets {
+                if targetNames.contains(target.name) {
+                    if targets[target.name] != nil {
+                        swiftTool.observabilityScope.emit(error: "Ambiguous target name: ‘\(target.name)’")
+                        throw ExitCode.failure
+                    }
+                    targets[target.name] = target
+                }
+            }
+            assert(targets.count <= targetNames.count)
+            if targets.count != targetNames.count {
+                let unknownTargetNames = Set(targetNames).subtracting(targets.keys)
+                swiftTool.observabilityScope.emit(error: "Unknown targets: ‘\(unknownTargetNames.sorted().joined(separator: "’, ‘"))’")
+                throw ExitCode.failure
+            }
+            
+            // Temporary: For now only a single target can be specified.
+            if targets.count > 1 {
+                swiftTool.observabilityScope.emit(error: "Only a single target is currently supported")
+                throw ExitCode.failure
+            }
+            let target = targets.first!.value
+            print(target)
+            
+            // Temporary: Create the symbol graphs for the targets. Later this will be done during the build, and it
+            // will be done only when the plugin asks for this information.
+            let symbolGraphExtract = try SymbolGraphExtract(tool: swiftTool.getToolchain().getSymbolGraphExtract())
+            
+            // Build the current package (without build manifest caching, because we need the build plan).
+            let buildParameters = try swiftTool.buildParameters()
+            let buildOperation = try swiftTool.createBuildOperation(cacheBuildManifest: false)
+            try buildOperation.build(subset: .target(target.name))
+            do {
+                try symbolGraphExtract.dumpSymbolGraph(
+                    buildPlan: buildOperation.buildPlan!,
+                    prettyPrint: false,
+                    skipSynthesisedMembers: true,
+                    minimumAccessLevel: .public,
+                    skipInheritedDocs: true,
+                    includeSPISymbols: true)
+            }
+            catch _ as Diagnostics {
+                throw ExitCode.failure
+            }
+
+            print(buildParameters.symbolGraph)
+
+            // Configure the plugin invocation inputs.
+
+            // The `plugins` directory is inside the workspace's main data directory, and contains all
+            // temporary files related to all plugins in the workspace.
+            let dataDir = try swiftTool.getActiveWorkspace().location.workingDirectory
+            let pluginsDir = dataDir.appending(component: "plugins")
+
+            // The `cache` directory is in the plugins directory and is where the plugin script runner
+            // caches compiled plugin binaries and any other derived information.
+            let cacheDir = pluginsDir.appending(component: "cache")
+            let pluginScriptRunner = DefaultPluginScriptRunner(cacheDir: cacheDir, toolchain: try swiftTool.getToolchain().configuration, enableSandbox: false)
+
+            // The `outputs` directory contains subdirectories for each combination of package, target, and plugin.
+            // Each usage of a plugin has an output directory that is writable by the plugin, where it can write
+            // additional files, and to which it can configure tools to write their outputs, etc.
+            let outputDir = pluginsDir.appending(component: "outputs")
+
+            // The `tools` directory contains any command line tools (executables) that are available for any commands
+            // defined by the executable.
+            // FIXME: At the moment we just pass the built products directory for the host. We will need to extend this
+            // with a map of the names of tools available to each plugin. In particular this would not work with any
+            // binary targets.
+            // let builtToolsDir = dataDir.appending(components: "plugin-tools")
+
+            // Create the cache directory, if needed.
+            try localFileSystem.createDirectory(cacheDir, recursive: true)
+            
+            // For now we just encode the build info as a JSON-encoded string. Later this will be determined on-demand and sent to the plugin.
+            struct TargetBuildInfo: Encodable {
+                var symbolGraphDirPath: String
+            }
+            let targetBuildInfo = TargetBuildInfo(symbolGraphDirPath: buildParameters.symbolGraph.pathString)
+            let encodedTargetBuildInfo = try JSONEncoder().encode(targetBuildInfo)
+            
+            // Run the plugin.
+            let targetNamesToEncodedBuildInfos = [target.name: String(decoding: encodedTargetBuildInfo, as: UTF8.self)]
+            let result = try plugin.invoke(
+                // FIXME: Need to support multiple targets.
+                action: .performUserCommand(targets: [target], arguments: arguments, targetNamesToEncodedBuildInfos: targetNamesToEncodedBuildInfos /* TEMPORARY */),
+                package: packageGraph.package(for: target)!,
+                buildEnvironment: try swiftTool.buildParameters().buildEnvironment,
+                scriptRunner: pluginScriptRunner,
+                outputDirectory: outputDir,
+                toolNamesToPaths: [:],
+                fileSystem: localFileSystem)
+
+            // FIXME: Here we should print any diagnostics it emits.
+            print(result.diagnostics)
         }
     }
 }

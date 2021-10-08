@@ -33,9 +33,9 @@ public struct DefaultPluginScriptRunner: PluginScriptRunner {
     }
 
     /// Public protocol function that compiles and runs the plugin as a subprocess.  The tools version controls the availability of APIs in PackagePlugin, and should be set to the tools version of the package that defines the plugin (not of the target to which it is being applied).
-    public func runPluginScript(sources: Sources, inputJSON: Data, toolsVersion: ToolsVersion, writableDirectories: [AbsolutePath], diagnostics: DiagnosticsEngine, fileSystem: FileSystem) throws -> (outputJSON: Data, stdoutText: Data) {
+    public func runPluginScript(sources: Sources, inputJSON: Data, pluginArguments: [String], toolsVersion: ToolsVersion, writableDirectories: [AbsolutePath], diagnostics: DiagnosticsEngine, fileSystem: FileSystem) throws -> (outputJSON: Data, stdoutText: Data) {
         let compiledExec = try self.compile(sources: sources, toolsVersion: toolsVersion, cacheDir: self.cacheDir)
-        return try self.invoke(compiledExec: compiledExec, toolsVersion: toolsVersion, writableDirectories: writableDirectories, input: inputJSON)
+        return try self.invoke(compiledExec: compiledExec, toolsVersion: toolsVersion, writableDirectories: writableDirectories, input: inputJSON, arguments: pluginArguments)
     }
     
     public var hostTriple: Triple {
@@ -161,52 +161,56 @@ public struct DefaultPluginScriptRunner: PluginScriptRunner {
         return PlatformVersion(versionString)
     }
 
-    fileprivate func invoke(compiledExec: AbsolutePath, toolsVersion: ToolsVersion, writableDirectories: [AbsolutePath], input: Data) throws -> (outputJSON: Data, stdoutText: Data) {
-        // Construct the command line.
-        // FIXME: It would be more robust to pass it as `stdin` data, but we need TSC support for that.  When this is
-        // changed, PackagePlugin will need to change as well (but no plugins need to change).
-        var command = [compiledExec.pathString]
-        command += [String(decoding: input, as: UTF8.self)]
+    fileprivate func invoke(compiledExec: AbsolutePath, toolsVersion: ToolsVersion, writableDirectories: [AbsolutePath], input: Data, arguments: [String]) throws -> (outputJSON: Data, stdoutText: Data) {
+        // Construct the command line.  We just pass along any arguments intended for the plugin.
+        var command = [compiledExec.pathString] + arguments
 
+        // Write the input data to a file.
+        // TODO: In the future this will be a named pipe, so we can talk back and forth.
+        // FIXME: Maybe pick a better place for it?
+        let pluginInputFilePath = cacheDir.appending(component: ".input.json")
+        try localFileSystem.writeFileContents(pluginInputFilePath, data: input)
+        
+        // Open a file for receiving data from the plugin (removing any previous file).
+        // TODO: In the future this will be a named pipe, so we can talk back and forth.
+        // FIXME: Maybe pick a better place for it?
+        let pluginOutputFilePath = cacheDir.appending(component: ".output.json")
+        try? localFileSystem.removeFileTree(pluginOutputFilePath)
+        
         // If enabled, run command in a sandbox.
         // This provides some safety against arbitrary code execution when invoking the plugin.
         // We only allow the permissions which are absolutely necessary.
         if self.enableSandbox {
-            command = Sandbox.apply(command: command, writableDirectories: writableDirectories)
+            command = Sandbox.apply(command: command, writableDirectories: writableDirectories + [self.cacheDir])
         }
+        print(command.joined(separator: "|"))
 
         // Invoke the plugin script as a subprocess.
-        let result: ProcessResult
-        do {
-            result = try Process.popen(arguments: command)
-        } catch {
-            throw DefaultPluginScriptRunnerError.subprocessDidNotStart("\(error)", command: command)
-        }
+        let environment = [
+            "__SWIFTPM_PLUGIN_INPUT_FILE_PATH__": pluginInputFilePath.pathString,
+            "__SWIFTPM_PLUGIN_OUTPUT_FILE_PATH__": pluginOutputFilePath.pathString
+        ]
+        let process = Process(arguments: command, environment: environment, outputRedirection: .collect(redirectStderr: true))
+        try process.launch()
+        let result = try process.waitUntilExit()
+        
+        // Any stdout and stderr output from the process is captured and passed along as opaque output, since it
+        // presumably contains debug output and/or errors messages that users might want to see.
+        let stdoutData = try Data(result.output.get())
+        let stdoutText = String(decoding: stdoutData, as: UTF8.self)
+        print("\(stdoutText.spm_dropSuffix("\n").split(separator: "\n", omittingEmptySubsequences: false).map({ "🧩 \($0)" }).joined(separator: "\n"))")
 
-        // Collect the output. The `PackagePlugin` runtime library writes the output as a zero byte followed by
-        // the JSON-serialized PluginEvaluationResult. Since this appears after any free-form output from the
-        // script, it can be safely split out while maintaining the ability to see debug output without resorting
-        // to side-channel communication that might be not be very cross-platform (e.g. pipes, file handles, etc).
-        // We end up with an optional Data for the JSON, and two Datas for stdout and stderr respectively.
-        var stdoutPieces = (try? result.output.get().split(separator: 0, omittingEmptySubsequences: false)) ?? []
-        let jsonData = (stdoutPieces.count > 1) ? Data(stdoutPieces.removeLast()) : nil
-        let stdoutData = Data(stdoutPieces.joined())
-        let stderrData = (try? Data(result.stderrOutput.get())) ?? Data()
-                
+        // Read the plugin output. The `PackagePlugin` library writes the output as a PluginEvaluationResult struct
+        // encoded as JSON, in the file whose path we passed down in the environment variable.
+        let pluginOutputData: Data = try localFileSystem.readFileContents(pluginOutputFilePath)
+        
         // Throw an error if we the subprocess ended badly.
         if result.exitStatus != .terminated(code: 0) {
-            let output = String(decoding: stdoutData + stderrData, as: UTF8.self)
-            throw DefaultPluginScriptRunnerError.subprocessFailed("\(result.exitStatus)", command: command, output: output)
+            throw DefaultPluginScriptRunnerError.subprocessFailed("\(result.exitStatus)", command: command, output: stdoutText)
         }
         
-        // Throw an error if we didn't get the JSON data.
-        guard let json = jsonData else {
-            let output = String(decoding: stdoutData + stderrData, as: UTF8.self)
-            throw DefaultPluginScriptRunnerError.missingPluginJSON("didn't receive JSON output data", command: command, output: output)
-        }
-
         // Otherwise return the JSON data and any output text.
-        return (outputJSON: json, stdoutText: stdoutData + stderrData)
+        return (outputJSON: pluginOutputData, stdoutText: stdoutData)
     }
 }
 

@@ -38,10 +38,41 @@
 extension Plugin {
     
     public static func main(_ arguments: [String]) throws {
-        // Look for the input JSON as the last argument of the invocation.
-        guard let inputData = ProcessInfo.processInfo.arguments.last?.data(using: .utf8) else {
-            fputs("Expected last argument to contain JSON input data in UTF-8 encoding, but didn't find it.", stderr)
-            Diagnostics.error("Expected last argument to contain JSON input data in UTF-8 encoding, but didn't find it.")
+        // Get the path of the output JSON file (via an environment variable,
+        // since the arguments contain the plugin's custom arguments). Note
+        // that the use of the environment here is an implementation detail
+        // that doesn't affect the plugin source code.
+        guard let outputPath = ProcessInfo.processInfo.environment["__SWIFTPM_PLUGIN_OUTPUT_FILE_PATH__"] else {
+            fputs("Internal Error: Expected but didn’t find '__SWIFTPM_PLUGIN_OUTPUT_FILE_PATH__' in environment.", stderr)
+            Diagnostics.error("Internal Error: Expected but didn’t find '__SWIFTPM_PLUGIN_OUTPUT_FILE_PATH__' in environment.")
+            exit(1)
+        }
+        
+        // Unset it in the environment so that it doesn't affect the plugin,
+        // in case it looks around in the environment.
+        unsetenv("__SWIFTPM_PLUGIN_OUTPUT_FILE_PATH__")
+        
+        // Get the path of the input JSON file (via an environment variable,
+        // since the arguments contain the plugin's custom arguments). Note
+        // that the use of the environment here is an implementation detail
+        // that doesn't affect the plugin source code.
+        guard let inputPath = ProcessInfo.processInfo.environment["__SWIFTPM_PLUGIN_INPUT_FILE_PATH__"] else {
+            fputs("Internal Error: Expected but didn’t find '__SWIFTPM_PLUGIN_INPUT_FILE_PATH__' in environment.", stderr)
+            Diagnostics.error("Internal Error: Expected but didn’t find '__SWIFTPM_PLUGIN_INPUT_FILE_PATH__' in environment.")
+            exit(1)
+        }
+        
+        // Unset it in the environment so that it doesn't affect the plugin,
+        // in case it looks around in the environment.
+        unsetenv("__SWIFTPM_PLUGIN_INPUT_FILE_PATH__")
+        
+        // Open the input JSON file and read its contents.
+        let inputData: Data
+        do {
+            try inputData = Data(contentsOf: URL(fileURLWithPath: inputPath))
+        }
+        catch {
+            Diagnostics.error("Internal Error: Couldn’t open input file '\(inputPath): \(error)'.")
             exit(1)
         }
 
@@ -49,7 +80,7 @@ extension Plugin {
         let input = try PluginInput(from: inputData)
         
         // Construct a PluginContext from the deserialized input.
-        let context = PluginContext(
+        var context = PluginContext(
             package: input.package,
             pluginWorkDirectory: input.pluginWorkDirectory,
             builtProductsDirectory: input.builtProductsDirectory,
@@ -75,12 +106,15 @@ extension Plugin {
             // Ask the plugin to create build commands for the input target.
             commands = try plugin.createBuildCommands(context: context, target: target)
             
-        case .performUserCommand(targets: let targets, arguments: let arguments):
+        case .performUserCommand(let targets, let arguments, let targetNamesToEncodedBuildInfos):
             // Check that the plugin implements the appropriate protocol for its
             // declared capability.
             guard let plugin = plugin as? UserCommandPlugin else {
                 throw PluginDeserializationError.malformedInputJSON("Plugin declared with `userCommand` capability but doesn't conform to `UserCommandPlugin` protocol")
             }
+            
+            // For now, set the mapping of target names to build info in the context. This will later go away, instead communicating back to SwiftPM to get this information dynamically.
+            context.targetNamesToEncodedBuildInfos = targetNamesToEncodedBuildInfos
             
             // Invoke the plugin.
             try plugin.performUserCommand(context: context, targets: targets, arguments: arguments)
@@ -92,9 +126,10 @@ extension Plugin {
         // Construct the output structure to send to SwiftPM.
         let output = try PluginOutput(commands: commands, diagnostics: Diagnostics.emittedDiagnostics)
 
-        // On stdout, write a zero byte followed by the JSON data — this is what libSwiftPM expects to see. Anything before the last zero byte is treated as freeform output from the plugin (such as debug output from `print` statements). Since `FileHandle.write()` doesn't obey buffering we first have to flush any existing output.
-        fputc(0, stdout)
-        fwrite([UInt8](output.outputData), 1, output.outputData.count, stdout)
+        // Write the output data to a file at the path provided by the environment variable.
+        // FIXME: Handle errors
+        let outputURL = URL(fileURLWithPath: outputPath)
+        try output.outputData.write(to: outputURL)
     }
     
     public static func main() throws {

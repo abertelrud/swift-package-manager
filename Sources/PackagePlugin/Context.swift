@@ -8,6 +8,8 @@
  See http://swift.org/CONTRIBUTORS.txt for Swift project authors
 */
 
+@_implementationOnly import Foundation
+
 /// Provides information about the package for which the plugin is invoked,
 /// as well as contextual information based on the plugin's stated intent
 /// and requirements.
@@ -54,6 +56,60 @@ public struct PluginContext {
 
         /// Full path of the built or provided tool in the file system.
         public let path: Path
+    }
+    
+    var targetNamesToEncodedBuildInfos: [String: String]?
+    
+    /// Invokes the named tool in the Swift toolchain and returns its output.
+    // FIXME: This should be unified with the `tool(named:)` above so that either custom tools or toolchain tools can be accessed.
+    public func invokeToolchainCommand(named name: String, arguments: [String]) throws -> String {
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/usr/bin/xcrun")
+        process.arguments = [name] + arguments
+        let pipe = Pipe()
+        process.standardOutput = pipe
+        process.standardError = pipe
+        try process.run()
+        process.waitUntilExit()
+        let data = pipe.fileHandleForReading.readDataToEndOfFile()
+        return String(decoding: data, as: UTF8.self)
+    }
+    
+    struct TargetBuildInfo: Decodable {
+        var symbolGraphDirPath: String
+    }
+    
+    /// Private function to return the build info associated with a target with
+    /// a given name. Getting this up-front is temporary; in the future we will
+    /// talk back to SwiftPM and ask it to return the requested information.
+    func buildInfo(for target: Target) throws -> TargetBuildInfo? {
+        guard let jsonString = self.targetNamesToEncodedBuildInfos?[target.name] else { return nil }
+        return try JSONDecoder().decode(TargetBuildInfo.self, from: Data(jsonString.utf8))
+    }
+    
+    /// Return the directory containing symbol graph files for the given target
+    /// and options. If the symbol graphs need to be created or updated first,
+    /// they will be.
+    ///
+    /// In the future this would talk back to SwiftPM and ask it to return the
+    /// requested information.
+    public func getSymbolGraphDirectory(for target: Target, options: SymbolGraphOptions) throws -> Path {
+        guard let path = try self.buildInfo(for: target)?.symbolGraphDirPath else {
+            throw PluginContextError.buildInfoNotFound(targetName: target.name)
+        }
+        return Path(path)
+    }
+    
+    public struct SymbolGraphOptions {
+        public var minimumAccessLevel: AccessLevel = AccessLevel.public
+
+        public enum AccessLevel: String, RawRepresentable, CaseIterable {
+            case `private`, `fileprivate`, `internal`, `public`, `open`
+        }
+        
+        public init(minimumAccessLevel: AccessLevel) {
+            self.minimumAccessLevel = minimumAccessLevel
+        }
     }
 }
 

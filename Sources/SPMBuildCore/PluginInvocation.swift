@@ -20,7 +20,7 @@ public typealias Diagnostic = TSCBasic.Diagnostic
 
 public enum PluginAction {
     case createBuildToolCommands(target: ResolvedTarget)
-    case performUserCommand(targets: [ResolvedTarget], arguments: [String])
+    case performUserCommand(targets: [ResolvedTarget], arguments: [String], targetNamesToEncodedBuildInfos: [String: String] /* TEMPORARY */)
 }
 
 
@@ -50,7 +50,7 @@ extension PluginTarget {
     public func invoke(
         action: PluginAction,
         package: ResolvedPackage,
-        buildEnvironment: buildEnvironment,
+        buildEnvironment: BuildEnvironment,
         scriptRunner: PluginScriptRunner,
         outputDirectory: AbsolutePath,
         toolNamesToPaths: [String: AbsolutePath],
@@ -87,13 +87,14 @@ extension PluginTarget {
         let (outputJSON, outputText) = try scriptRunner.runPluginScript(
             sources: sources,
             inputJSON: inputJSON,
+            pluginArguments: [],
             toolsVersion: self.apiVersion,
             writableDirectories: [outputDirectory],
             diagnostics: DiagnosticsEngine(),  // FIXME
             fileSystem: fileSystem)
 
-        print("|\(String(decoding: outputJSON, as: UTF8.self))|")
-        print("|\(String(decoding: outputText, as: UTF8.self))|")
+        // print("|\(String(decoding: outputJSON, as: UTF8.self))|")
+        // print("|\(String(decoding: outputText, as: UTF8.self))|")
 
         // Deserialize the JSON to an PluginScriptRunnerOutput.
         let outputStruct: PluginScriptRunnerOutput
@@ -104,7 +105,7 @@ extension PluginTarget {
         catch {
             throw PluginEvaluationError.decodingPluginOutputFailed(json: outputJSON, underlyingError: error)
         }
-        print(outputStruct)
+        // print(outputStruct)
 
         // Generate emittable Diagnostics from the plugin output.
         let diagnostics: [Diagnostic] = outputStruct.diagnostics.map { diag in
@@ -290,6 +291,7 @@ extension PackageGraph {
         let (outputJSON, stdoutText) = try pluginScriptRunner.runPluginScript(
             sources: sources,
             inputJSON: inputJSON,
+            pluginArguments: [],
             toolsVersion: toolsVersion,
             writableDirectories: writableDirectories,
             diagnostics: diagnostics,
@@ -431,6 +433,7 @@ public protocol PluginScriptRunner {
     func runPluginScript(
         sources: Sources,
         inputJSON: Data,
+        pluginArguments: [String],
         toolsVersion: ToolsVersion,
         writableDirectories: [AbsolutePath],
         diagnostics: DiagnosticsEngine,
@@ -470,7 +473,7 @@ struct PluginScriptRunnerInput: Codable {
     /// the capabilities declared for the plugin.
     enum PluginAction: Codable {
         case createBuildToolCommands(targetId: Target.Id)
-        case performUserCommand(targetIds: [Target.Id], arguments: [String])
+        case performUserCommand(targetIds: [Target.Id], arguments: [String], targetNamesToEncodedBuildInfos: [String: String] /* TEMPORARY */ )
     }
 
     /// A single absolute path in the wire structure, represented as a tuple
@@ -656,8 +659,8 @@ struct PluginScriptRunnerInputSerializer {
         switch pluginAction {
         case .createBuildToolCommands(let target):
             serializedPluginAction = .createBuildToolCommands(targetId: try serialize(target: target)!)
-        case .performUserCommand(let targets, let arguments):
-            serializedPluginAction = .performUserCommand(targetIds: try targets.compactMap { try serialize(target: $0) }, arguments: arguments)
+        case .performUserCommand(let targets, let arguments, let targetNamesToEncodedBuildInfos):
+            serializedPluginAction = .performUserCommand(targetIds: try targets.compactMap { try serialize(target: $0) }, arguments: arguments, targetNamesToEncodedBuildInfos: targetNamesToEncodedBuildInfos)
         }
         return PluginScriptRunnerInput(
             paths: paths,

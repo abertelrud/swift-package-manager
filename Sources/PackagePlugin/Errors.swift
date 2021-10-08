@@ -12,6 +12,8 @@ public enum PluginContextError: Error {
     /// Could not find a tool with the given name. This could be either because
     /// it doesn't exist, or because the plugin doesn't have a dependency on it.
     case toolNotFound(name: String)
+
+    case buildInfoNotFound(targetName: String)
 }
 
 extension PluginContextError: CustomStringConvertible {
@@ -19,6 +21,8 @@ extension PluginContextError: CustomStringConvertible {
         switch self {
         case .toolNotFound(let name):
             return "Plugin does not have access to a tool named ‘\(name)’"
+        case .buildInfoNotFound(let targetName):
+            return "Plugin does not have build information for a target named ‘\(targetName)’"
         }
     }
 }
