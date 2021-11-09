@@ -771,6 +771,9 @@ public class SwiftTool {
                 observabilityScope: self.observabilityScope,
                 fileSystem: localFileSystem
             )
+            
+            print(result)
+            
             return result
         }
         catch {

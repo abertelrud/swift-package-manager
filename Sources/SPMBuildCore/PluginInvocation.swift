@@ -650,12 +650,11 @@ struct PluginScriptRunnerInputSerializer {
                 linkedFrameworks: scope.evaluate(.LINK_FRAMEWORKS))
 
         case let target as SystemLibraryTarget:
-            // FIXME: Extract the logic to discover pkgConfig information from BuildPlan, call it, and pass it down.
-            
             var cFlags: [String] = []
             var ldFlags: [String] = []
-            var observabilityScope = ObservabilitySystem({ _, _ in }).topScope
-            for result in pkgConfigArgs(for: target, fileSystem: localFileSystem, observabilityScope: observabilityScope) { // FIXME
+            // FIXME: What do we do with any diagnostics here?
+            let observabilityScope = ObservabilitySystem({ _, _ in }).topScope
+            for result in pkgConfigArgs(for: target, fileSystem: localFileSystem, observabilityScope: observabilityScope) {
                 if let error = result.error {
                     observabilityScope.emit(
                         warning: "\(error)",
@@ -778,17 +777,13 @@ struct PluginScriptRunnerInputSerializer {
             case .root(_):
                 return .root
             case .fileSystem(let path):
-                // FIXME: Is this ever actually different from the package's path?
                 return .local(path: try serialize(path: path))
             case .localSourceControl(let path):
-                // FIXME: In this case, do we always have a version and revision here?  Or should we use CheckOutState?  How do we get a description of the resolved version/branch and revision from a ResolvedPackage?
-                return .repository(url: path.asURL.absoluteString, displayVersion: package.manifest.version!.description, scmRevision: package.manifest.revision!)
+                return .repository(url: path.asURL.absoluteString, displayVersion: String(describing: package.manifest.version), scmRevision: String(describing: package.manifest.revision))
             case .remoteSourceControl(let url):
-                // FIXME: In this case, do we always have a version and revision here?  Or should we use CheckOutState?  How do we get a description of the resolved version/branch and revision from a ResolvedPackage?
-                return .repository(url: url.absoluteString, displayVersion: package.manifest.version!.description, scmRevision: package.manifest.revision!)
+                return .repository(url: url.absoluteString, displayVersion: String(describing: package.manifest.version), scmRevision: String(describing: package.manifest.revision))
             case .registry(let identity):
-                // FIXME: In this case, do we always have a version here?  Or should we use CheckOutState?  How do we get a description of the resolved version/branch and revision from a ResolvedPackage?
-                return .registry(identity: identity.description, displayVersion: package.manifest.version!.description)
+                return .registry(identity: identity.description, displayVersion: String(describing: package.manifest.version))
             }
         }
 

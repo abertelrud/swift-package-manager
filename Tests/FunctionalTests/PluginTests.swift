@@ -139,4 +139,26 @@ class PluginTests: XCTestCase {
         }
         #endif
     }
+
+    func testAdditionalAPIs() throws {
+        // Check if the host compiler supports the '-entry-point-function-name' flag.  It's not needed for this test but is needed to build any executable from a package that uses tools version 5.5.
+        #if swift(<5.5)
+        try XCTSkipIf(true, "skipping because host compiler doesn't support '-entry-point-function-name'")
+        #endif
+        
+        fixture(name: "Miscellaneous/Plugins") { path in
+            do {
+                let (stdout, _) = try executeSwiftBuild(path.appending(component: "ExpandedAPIsTestPlugin"), configuration: .Debug, extraArgs: ["--product", "MyTool"])
+                XCTAssert(stdout.contains("Linking MySourceGenBuildTool"), "stdout:\n\(stdout)")
+                XCTAssert(stdout.contains("Generating foo.swift from foo.dat"), "stdout:\n\(stdout)")
+                XCTAssert(stdout.contains("Linking MyLocalTool"), "stdout:\n\(stdout)")
+                XCTAssert(stdout.contains("Build complete!"), "stdout:\n\(stdout)")
+            }
+            catch {
+                print(error)
+                throw error
+            }
+        }
+    }
+
 }
