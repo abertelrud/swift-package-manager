@@ -759,6 +759,7 @@ public struct PluginScriptRunnerInput: Codable {
             /// Information about a Swift source module target.
             case swiftSourceModuleInfo(
                 moduleName: String,
+                kind: SourceModuleKind,
                 sourceFiles: [File],
                 compilationConditions: [String],
                 linkedLibraries: [String],
@@ -767,6 +768,7 @@ public struct PluginScriptRunnerInput: Codable {
             /// Information about a Clang source module target.
             case clangSourceModuleInfo(
                 moduleName: String,
+                kind: SourceModuleKind,
                 sourceFiles: [File],
                 preprocessorDefinitions: [String],
                 headerSearchPaths: [String],
@@ -801,6 +803,13 @@ public struct PluginScriptRunnerInput: Codable {
                 }
             }
             
+            /// A kind of source module.
+            enum SourceModuleKind: String, Codable {
+                case regular
+                case executable
+                case test
+            }
+
             /// A kind of binary artifact.
             enum BinaryArtifactKind: Codable {
                 case xcframework
@@ -913,6 +922,7 @@ struct PluginScriptRunnerInputSerializer {
         case let target as SwiftTarget:
             targetInfo = .swiftSourceModuleInfo(
                 moduleName: target.c99name,
+                kind: (target.type == .executable ? .executable : .regular),
                 sourceFiles: targetFiles,
                 compilationConditions: scope.evaluate(.SWIFT_ACTIVE_COMPILATION_CONDITIONS),
                 linkedLibraries: scope.evaluate(.LINK_LIBRARIES),
@@ -921,6 +931,7 @@ struct PluginScriptRunnerInputSerializer {
         case let target as ClangTarget:
             targetInfo = .clangSourceModuleInfo(
                 moduleName: target.c99name,
+                kind: (target.type == .executable ? .executable : .regular),
                 sourceFiles: targetFiles,
                 preprocessorDefinitions: scope.evaluate(.GCC_PREPROCESSOR_DEFINITIONS),
                 headerSearchPaths: scope.evaluate(.HEADER_SEARCH_PATHS),
@@ -945,7 +956,6 @@ struct PluginScriptRunnerInputSerializer {
                     ldFlags += result.libs
                 }
             }
-
             targetInfo = .systemLibraryInfo(
                 pkgConfig: target.pkgConfig,
                 compilerFlags: cFlags,

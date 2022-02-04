@@ -102,7 +102,7 @@ fileprivate struct PluginInputDeserializer {
         let target: Target
         switch wireTarget.info {
         
-        case let .swiftSourceModuleInfo(moduleName, sourceFiles, compilationConditions, linkedLibraries, linkedFrameworks):
+        case let .swiftSourceModuleInfo(moduleName, moduleKind, sourceFiles, compilationConditions, linkedLibraries, linkedFrameworks):
             let sourceFiles = FileList(try sourceFiles.map {
                 let path = try self.path(for: $0.basePathId).appending($0.name)
                 let type: FileType
@@ -118,9 +118,19 @@ fileprivate struct PluginInputDeserializer {
                 }
                 return File(path: path, type: type)
             })
+            let targetType: TargetType
+            switch moduleKind {
+            case .regular:
+                targetType = .regular
+            case .executable:
+                targetType = .executable
+            case .test:
+                targetType = .test
+            }
             target = SwiftSourceModuleTarget(
                 id: String(id),
                 name: wireTarget.name,
+                type: targetType,
                 directory: directory,
                 dependencies: dependencies,
                 moduleName: moduleName,
@@ -129,7 +139,7 @@ fileprivate struct PluginInputDeserializer {
                 linkedLibraries: linkedLibraries,
                 linkedFrameworks: linkedFrameworks)
 
-        case let .clangSourceModuleInfo(moduleName, sourceFiles, preprocessorDefinitions, headerSearchPaths, publicHeadersDirId, linkedLibraries, linkedFrameworks):
+        case let .clangSourceModuleInfo(moduleName, moduleKind, sourceFiles, preprocessorDefinitions, headerSearchPaths, publicHeadersDirId, linkedLibraries, linkedFrameworks):
             let publicHeadersDir = try publicHeadersDirId.map { try self.path(for: $0) }
             let sourceFiles = FileList(try sourceFiles.map {
                 let path = try self.path(for: $0.basePathId).appending($0.name)
@@ -146,9 +156,19 @@ fileprivate struct PluginInputDeserializer {
                 }
                 return File(path: path, type: type)
             })
+            let targetType: TargetType
+            switch moduleKind {
+            case .regular:
+                targetType = .regular
+            case .executable:
+                targetType = .executable
+            case .test:
+                targetType = .test
+            }
             target = ClangSourceModuleTarget(
                 id: String(id),
                 name: wireTarget.name,
+                type: targetType,
                 directory: directory,
                 dependencies: dependencies,
                 moduleName: moduleName,
@@ -178,6 +198,7 @@ fileprivate struct PluginInputDeserializer {
             target = BinaryArtifactTarget(
                 id: String(id),
                 name: wireTarget.name,
+                type: .binary,
                 directory: directory,
                 dependencies: dependencies,
                 kind: artifactKind,
@@ -188,6 +209,7 @@ fileprivate struct PluginInputDeserializer {
             target = SystemLibraryTarget(
                 id: String(id),
                 name: wireTarget.name,
+                type: .system,
                 directory: directory,
                 dependencies: dependencies,
                 pkgConfig: pkgConfig,
@@ -397,6 +419,7 @@ internal struct WireInput: Decodable {
             /// Information about a Swift source module target.
             case swiftSourceModuleInfo(
                 moduleName: String,
+                kind: SourceModuleKind,
                 sourceFiles: [File],
                 compilationConditions: [String],
                 linkedLibraries: [String],
@@ -405,6 +428,7 @@ internal struct WireInput: Decodable {
             /// Information about a Clang source module target.
             case clangSourceModuleInfo(
                 moduleName: String,
+                kind: SourceModuleKind,
                 sourceFiles: [File],
                 preprocessorDefinitions: [String],
                 headerSearchPaths: [String],
@@ -437,6 +461,12 @@ internal struct WireInput: Decodable {
                     case resource
                     case unknown
                 }
+            }
+
+            enum SourceModuleKind: String, Decodable {
+                case regular
+                case executable
+                case test
             }
 
             enum BinaryArtifactKind: Decodable {

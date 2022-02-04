@@ -168,6 +168,9 @@ public protocol Target {
     /// is unique among the targets of the package in which it is defined.
     var name: String { get }
     
+    /// The type of target.
+    var type: TargetType { get }
+
     /// The absolute path of the target directory in the local file system.
     var directory: Path { get }
     
@@ -175,6 +178,22 @@ public protocol Target {
     /// they are specified in the package manifest. Conditional dependencies
     /// that do not apply have already been filtered out.
     var dependencies: [TargetDependency] { get }
+}
+
+/// Represents the kind of target.
+public enum TargetType {
+    /// A target that contains code that can be used as a module in libraries
+    /// and executables.
+    case regular
+    /// A target that contains code for an executable's main module.
+    case executable
+    /// A target that contains tests for other targets in the package
+    case test
+    /// A target that adapts a library intalled on the system to work with
+    /// Swift packages.
+    case system
+    /// A target that represents a binary artifact.
+    case binary
 }
 
 /// Represents a dependency of a target on a product or on another target.
@@ -215,6 +234,10 @@ public struct SwiftSourceModuleTarget: SourceModuleTarget {
     /// is unique among the targets of the package in which it is defined.
     public let name: String
     
+    /// The type of target (for a SwiftSourceModuleTarget this is always one
+    /// of `.regular`, `.executable`, or `.test`).
+    public let type: TargetType
+    
     /// The absolute path of the target directory in the local file system.
     public let directory: Path
     
@@ -252,6 +275,10 @@ public struct ClangSourceModuleTarget: SourceModuleTarget {
     /// The name of the target, as defined in the package manifest. This name
     /// is unique among the targets of the package in which it is defined.
     public let name: String
+    
+    /// The type of target (for a ClangSourceModuleTarget this is always one
+    /// of `.regular`, `.executable`, or `.test`).
+    public let type: TargetType
     
     /// The absolute path of the target directory in the local file system.
     public let directory: Path
@@ -298,6 +325,9 @@ public struct BinaryArtifactTarget: Target {
     /// is unique among the targets of the package in which it is defined.
     public let name: String
     
+    /// The type of target (for a BinaryArtifactTarget this is always `.binary`).
+    public let type: TargetType
+    
     /// The absolute path of the target directory in the local file system.
     public let directory: Path
     
@@ -341,6 +371,9 @@ public struct SystemLibraryTarget: Target {
     /// The name of the target, as defined in the package manifest. This name
     /// is unique among the targets of the package in which it is defined.
     public var name: String
+    
+    /// The type of target (for a SystemLibraryTarget this is always `.system`).
+    public let type: TargetType
     
     /// The absolute path of the target directory in the local file system.
     public var directory: Path
