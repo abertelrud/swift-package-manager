@@ -1650,7 +1650,7 @@ public class BuildPlan: SPMBuildCore.BuildPlan {
     public let graph: PackageGraph
 
     /// The target build description map.
-    public let targetMap: [ResolvedTarget: TargetBuildDescription]
+    public let targetMap: [ResolvedTarget: [TargetBuildDescription]]
 
     /// The product build description map.
     public let productMap: [ResolvedProduct: ProductBuildDescription]
@@ -1661,7 +1661,7 @@ public class BuildPlan: SPMBuildCore.BuildPlan {
 
     /// The build targets.
     public var targets: AnySequence<TargetBuildDescription> {
-        return AnySequence(targetMap.values)
+        return AnySequence(targetMap.values.flatMap{ $0 })
     }
 
     /// The products in this plan.
@@ -1880,7 +1880,7 @@ public class BuildPlan: SPMBuildCore.BuildPlan {
         // Plugin targets are noted, since they need to be compiled, but they do
         // not get directly incorporated into the build description that will be
         // given to LLBuild.
-        var targetMap = [ResolvedTarget: TargetBuildDescription]()
+        var targetMap = [ResolvedTarget: [TargetBuildDescription]]()
         var pluginDescriptions = [PluginDescription]()
         for target in graph.allTargets.sorted(by: { $0.name < $1.name }) {
             // Validate the product dependencies of this target.
@@ -1906,12 +1906,13 @@ public class BuildPlan: SPMBuildCore.BuildPlan {
             // This can affect what flags to pass and other semantics.
             let toolsVersion = graph.package(for: target)?.manifest.toolsVersion ?? .v5_5
 
+            var targetDescs = targetMap[target] ?? []
             switch target.underlyingTarget {
             case is SwiftTarget:
                 guard let package = graph.package(for: target) else {
                     throw InternalError("package not found for \(target)")
                 }
-                targetMap[target] = try .swift(SwiftTargetBuildDescription(
+                targetDescs.append(try .swift(SwiftTargetBuildDescription(
                     package: package,
                     target: target,
                     toolsVersion: toolsVersion,
@@ -1920,14 +1921,13 @@ public class BuildPlan: SPMBuildCore.BuildPlan {
                     buildToolPluginInvocationResults: buildToolPluginInvocationResults[target] ?? [],
                     prebuildCommandResults: prebuildCommandResults[target] ?? [],
                     fileSystem: fileSystem,
-                    observabilityScope: observabilityScope)
-                )
+                    observabilityScope: observabilityScope)))
             case is ClangTarget:
-                targetMap[target] = try .clang(ClangTargetBuildDescription(
+                targetDescs.append(try .clang(ClangTargetBuildDescription(
                     target: target,
                     toolsVersion: toolsVersion,
                     buildParameters: buildParameters,
-                    fileSystem: fileSystem))
+                    fileSystem: fileSystem)))
             case is PluginTarget:
                 guard let package = graph.package(for: target) else {
                     throw InternalError("package not found for \(target)")
@@ -1943,6 +1943,7 @@ public class BuildPlan: SPMBuildCore.BuildPlan {
             default:
                  throw InternalError("unhandled \(target.underlyingTarget)")
             }
+            targetMap[target] = targetDescs
         }
 
         /// Ensure we have at least one buildable target.
@@ -1961,10 +1962,10 @@ public class BuildPlan: SPMBuildCore.BuildPlan {
             for item in derivedTestTargets {
                 var derivedTestTargets = [item.entryPointTargetBuildDescription.target]
 
-                targetMap[item.entryPointTargetBuildDescription.target] = .swift(item.entryPointTargetBuildDescription)
+                targetMap[item.entryPointTargetBuildDescription.target] = [.swift(item.entryPointTargetBuildDescription)]
 
                 if let discoveryTargetBuildDescription = item.discoveryTargetBuildDescription {
-                    targetMap[discoveryTargetBuildDescription.target] = .swift(discoveryTargetBuildDescription)
+                    targetMap[discoveryTargetBuildDescription.target] = [.swift(discoveryTargetBuildDescription)]
                     derivedTestTargets.append(discoveryTargetBuildDescription.target)
                 }
 
@@ -2091,7 +2092,7 @@ public class BuildPlan: SPMBuildCore.BuildPlan {
             switch target.underlyingTarget {
             case is SwiftTarget:
                 // Swift targets are guaranteed to have a corresponding Swift description.
-                guard case .swift(let description) = targetMap[target] else {
+                guard case .swift(let description) = targetMap[target]?.first else {
                     throw InternalError("unknown target \(target)")
                 }
 
@@ -2119,7 +2120,7 @@ public class BuildPlan: SPMBuildCore.BuildPlan {
             return product
         }
         buildProduct.objects += try dependencies.staticTargets.flatMap{ targetName -> [AbsolutePath] in
-            guard let target = targetMap[targetName] else {
+            guard let target = targetMap[targetName]?.first else {
                 throw InternalError("unknown target \(targetName)")
             }
             return try target.objects
@@ -2249,7 +2250,7 @@ public class BuildPlan: SPMBuildCore.BuildPlan {
         for case .target(let dependency, _) in try clangTarget.target.recursiveDependencies(satisfying: buildEnvironment) {
             switch dependency.underlyingTarget {
             case is SwiftTarget:
-                if case let .swift(dependencyTargetDescription)? = targetMap[dependency] {
+                if case let .swift(dependencyTargetDescription)? = targetMap[dependency]?.first {
                     if let moduleMap = dependencyTargetDescription.moduleMap {
                         clangTarget.additionalFlags += ["-fmodule-map-file=\(moduleMap.pathString)"]
                     }
@@ -2260,7 +2261,7 @@ public class BuildPlan: SPMBuildCore.BuildPlan {
                 clangTarget.additionalFlags += ["-I", target.includeDir.pathString]
 
                 // Add the modulemap of the dependency if it has one.
-                if case let .clang(dependencyTargetDescription)? = targetMap[dependency] {
+                if case let .clang(dependencyTargetDescription)? = targetMap[dependency]?.first {
                     if let moduleMap = dependencyTargetDescription.moduleMap {
                         clangTarget.additionalFlags += ["-fmodule-map-file=\(moduleMap.pathString)"]
                     }
@@ -2290,7 +2291,7 @@ public class BuildPlan: SPMBuildCore.BuildPlan {
         for case .target(let dependency, _) in try swiftTarget.target.recursiveDependencies(satisfying: buildEnvironment) {
             switch dependency.underlyingTarget {
             case let underlyingTarget as ClangTarget where underlyingTarget.type == .library:
-                guard case let .clang(target)? = targetMap[dependency] else {
+                guard case let .clang(target)? = targetMap[dependency]?.first else {
                     throw InternalError("unexpected clang target \(underlyingTarget)")
                 }
                 // Add the path to modulemap of the dependency. Currently we require that all Clang targets have a

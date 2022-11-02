@@ -336,15 +336,17 @@ public struct BuildDescription: Codable {
         }
         var targetCommandLines: [TargetName: [CommandLineFlag]] = [:]
         var generatedSourceTargets: [TargetName] = []
-        for (target, description) in plan.targetMap {
-            guard case .swift(let desc) = description else {
-                continue
-            }
-            targetCommandLines[target.c99name] =
-                try desc.emitCommandLine(scanInvocation: true) + ["-driver-use-frontend-path",
-                                                                  plan.buildParameters.toolchain.swiftCompilerPath.pathString]
-            if case .discovery = desc.testTargetRole {
-                generatedSourceTargets.append(target.c99name)
+        for (target, descriptions) in plan.targetMap {
+            for description in descriptions {
+                guard case .swift(let desc) = description else {
+                    continue
+                }
+                targetCommandLines[target.c99name] =
+                    try desc.emitCommandLine(scanInvocation: true) + ["-driver-use-frontend-path",
+                                                                      plan.buildParameters.toolchain.swiftCompilerPath.pathString]
+                if case .discovery = desc.testTargetRole {
+                    generatedSourceTargets.append(target.c99name)
+                }
             }
         }
         generatedSourceTargets.append(contentsOf: plan.graph.allTargets.filter {$0.type == .plugin}

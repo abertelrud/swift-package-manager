@@ -111,7 +111,7 @@ enum BuildError: Swift.Error {
 struct BuildPlanResult {
 
     let plan: Build.BuildPlan
-    let targetMap: [String: TargetBuildDescription]
+    let targetMap: [String: [TargetBuildDescription]]
     let productMap: [String: Build.ProductBuildDescription]
 
     init(plan: Build.BuildPlan) throws {
@@ -128,7 +128,7 @@ struct BuildPlanResult {
         XCTAssertEqual(plan.productMap.count, count, file: file, line: line)
     }
 
-    func target(for name: String) throws -> TargetBuildDescription {
+    func target(for name: String) throws -> [TargetBuildDescription] {
         guard let target = targetMap[name] else {
             throw BuildError.error("Target \(name) not found.")
         }

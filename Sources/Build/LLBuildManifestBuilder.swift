@@ -77,12 +77,14 @@ public class LLBuildManifestBuilder {
             try addTargetsToExplicitBuildManifest()
         } else {
             // Create commands for all target descriptions in the plan.
-            for (_, description) in plan.targetMap {
-                switch description {
-                    case .swift(let desc):
-                        try self.createSwiftCompileCommand(desc)
-                    case .clang(let desc):
-                        try self.createClangCompileCommand(desc)
+            for (_, descriptions) in plan.targetMap {
+                for description in descriptions {
+                    switch description {
+                        case .swift(let desc):
+                            try self.createSwiftCompileCommand(desc)
+                        case .clang(let desc):
+                            try self.createClangCompileCommand(desc)
+                    }
                 }
             }
         }
@@ -149,7 +151,7 @@ extension LLBuildManifestBuilder {
 extension LLBuildManifestBuilder {
     // Creates commands for copying all binary artifacts depended on in the plan.
     fileprivate func addBinaryDependencyCommands() {
-        let binaryPaths = Set(plan.targetMap.values.flatMap({ $0.libraryBinaryPaths }))
+        let binaryPaths = Set(plan.targetMap.values.flatMap{ $0 }.flatMap({ $0.libraryBinaryPaths }))
         for binaryPath in binaryPaths {
             let destination = destinationPath(forBinaryAt: binaryPath)
             addCopyCommand(from: binaryPath, to: destination)
@@ -369,7 +371,7 @@ extension LLBuildManifestBuilder {
                 // be able to detect such targets' modules.
                 continue
             }
-            guard let description = plan.targetMap[target] else {
+            guard let description = plan.targetMap[target]?.first else {
                 throw InternalError("Expected description for target \(target)")
             }
             switch description {
@@ -469,7 +471,7 @@ extension LLBuildManifestBuilder {
         for target: ResolvedTarget,
         dependencyModuleDetailsMap: inout SwiftDriver.ExternalTargetModuleDetailsMap
     ) throws {
-        guard case .swift(let dependencySwiftTargetDescription) = plan.targetMap[target] else {
+        guard case .swift(let dependencySwiftTargetDescription) = plan.targetMap[target]?.first else {
             return
         }
         dependencyModuleDetailsMap[ModuleDependencyId.swiftPlaceholder(target.c99name)] =
@@ -565,7 +567,7 @@ extension LLBuildManifestBuilder {
                 return
             }
 
-            switch plan.targetMap[target] {
+            switch plan.targetMap[target]?.first {
             case .swift(let target)?:
                 inputs.append(file: target.moduleOutputPath)
             case .clang(let target)?:
@@ -726,7 +728,7 @@ extension LLBuildManifestBuilder {
         }
 
         func addStaticTargetInputs(_ target: ResolvedTarget) {
-            if case .swift(let desc)? = plan.targetMap[target], target.type == .library {
+            if case .swift(let desc)? = plan.targetMap[target]?.first, target.type == .library {
                 inputs.append(file: desc.moduleOutputPath)
             }
         }
@@ -827,7 +829,7 @@ extension LLBuildManifestBuilder {
         for testDiscoveryTarget in plan.targets.compactMap(\.testDiscoveryTargetBuildDescription) {
             let testTargets = testDiscoveryTarget.target.dependencies
                 .compactMap{ $0.target }.compactMap{ plan.targetMap[$0] }
-            let objectFiles = try testTargets.flatMap{ try $0.objects }.sorted().map(Node.file)
+            let objectFiles = try testTargets.flatMap{ $0 }.flatMap{ try $0.objects }.sorted().map(Node.file)
             let outputs = testDiscoveryTarget.target.sources.paths
 
             guard let mainOutput = (outputs.first{ $0.basename == TestDiscoveryTool.mainFileName }) else {
@@ -852,9 +854,9 @@ extension LLBuildManifestBuilder {
 
             // Get the Swift target build descriptions of all discovery targets this synthesized entry point target depends on.
             let discoveredTargetDependencyBuildDescriptions = testEntryPointTarget.target.dependencies
-                .compactMap(\.target)
-                .compactMap { plan.targetMap[$0] }
-                .compactMap(\.testDiscoveryTargetBuildDescription)
+                .compactMap( \.target )
+                .flatMap{ plan.targetMap[$0] ?? [] }
+                .compactMap( \.testDiscoveryTargetBuildDescription )
 
             // The module outputs of the discovery targets this synthesized entry point target depends on are
             // considered the inputs to the entry point command.
